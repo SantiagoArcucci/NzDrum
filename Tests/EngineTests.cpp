@@ -88,6 +88,11 @@ public:
             expectEquals (p.getPadFile (0).getFileName(), juce::String ("kick1.wav"));
         }
 
+        beginTest ("El tail informa la duracion del sample mas largo");
+        {
+            expectWithinAbsoluteError (p.getTailLengthSeconds(), 4000.0 / testSampleRate, 1.0e-6);
+        }
+
         beginTest ("La nota MIDI suena en la muestra exacta");
         {
             juce::MidiBuffer midi;
@@ -139,6 +144,13 @@ public:
         beginTest ("Un archivo invalido no cambia el pad");
         {
             p.loadSample (0, folder.getChildFile ("notas.txt"));
+            expect (waitUntilLoaded (p, 0));
+            expectEquals (p.getPadFile (0).getFileName(), juce::String ("kick10.wav"));
+
+            // Un WAV valido pero sin audio tampoco se publica.
+            auto emptyFolder = folder.getChildFile ("vacio");
+            emptyFolder.createDirectory();
+            p.loadSample (0, writeTestWav (emptyFolder, "silencio.wav", 0));
             expect (waitUntilLoaded (p, 0));
             expectEquals (p.getPadFile (0).getFileName(), juce::String ("kick10.wav"));
         }

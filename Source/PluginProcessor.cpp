@@ -20,9 +20,10 @@ NzDrumProcessor::NzDrumProcessor()
 NzDrumProcessor::~NzDrumProcessor()
 {
     stopTimer();
-    // Esperamos a que termine cualquier carga en curso antes de destruir
-    // los slots a los que esa carga podría publicar.
-    loaderPool.removeAllJobs (true, 5000);
+    // Esperamos sin límite a que termine la carga en curso: cada carga está
+    // acotada (máximo 30 s de audio), y cortarla antes dejaría al hilo de
+    // carga escribiendo en memoria ya liberada.
+    loaderPool.removeAllJobs (true, -1);
 }
 
 void NzDrumProcessor::prepareToPlay (double sampleRate, int)
@@ -208,6 +209,8 @@ void NzDrumProcessor::finishLoad (int pad, const juce::File& file, std::unique_p
             padFiles[(size_t) pad] = file;
         }
 
+        sampleSeconds[(size_t) pad].store (sample->audio.getNumSamples() / sample->sampleRate);
+
         slots[(size_t) pad].publish (std::move (sample));
     }
 
@@ -218,18 +221,24 @@ std::unique_ptr<LoadedSample> NzDrumProcessor::readFile (const juce::File& file)
 {
     std::unique_ptr<juce::AudioFormatReader> reader (formats.createReaderFor (file));
 
-    if (reader == nullptr || reader->sampleRate <= 0.0)
+    if (reader == nullptr || reader->sampleRate <= 0.0 || reader->numChannels == 0)
         return nullptr;
 
     const auto maxLength = (juce::int64) (maxSampleSeconds * reader->sampleRate);
     const int length = (int) std::min (reader->lengthInSamples, maxLength);
     const int channels = (int) juce::jmin (2u, reader->numChannels);
 
+    if (length <= 0)
+        return nullptr;
+
     auto sample = std::make_unique<LoadedSample>();
     sample->audio.setSize (channels, length);
     sample->sampleRate = reader->sampleRate;
     sample->file = file;
-    reader->read (&sample->audio, 0, length, 0, true, channels > 1);
+
+    // Si la decodificación falla, el pad se queda con el sample que tenía.
+    if (! reader->read (&sample->audio, 0, length, 0, true, channels > 1))
+        return nullptr;
 
     return sample;
 }
@@ -289,6 +298,18 @@ bool NzDrumProcessor::isSupportedFile (const juce::File& file) const
 juce::String NzDrumProcessor::getSupportedWildcard() const
 {
     return formats.getWildcardForAllFormats();
+}
+
+double NzDrumProcessor::getTailLengthSeconds() const
+{
+    // Una nota puede seguir sonando hasta que termina su sample. El host usa
+    // este valor para no cortar el final al exportar o congelar una pista.
+    double longest = 0.0;
+
+    for (const auto& seconds : sampleSeconds)
+        longest = juce::jmax (longest, seconds.load());
+
+    return longest;
 }
 
 void NzDrumProcessor::timerCallback()

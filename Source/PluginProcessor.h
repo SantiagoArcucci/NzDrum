@@ -37,7 +37,7 @@ public:
     bool acceptsMidi() const override { return true; }
     bool producesMidi() const override { return false; }
     bool isMidiEffect() const override { return false; }
-    double getTailLengthSeconds() const override { return 0.0; }
+    double getTailLengthSeconds() const override;
 
     int getNumPrograms() override { return 1; }
     int getCurrentProgram() override { return 0; }
@@ -98,10 +98,6 @@ private:
     // leen, así que se pueden usar desde el hilo de carga.
     juce::AudioFormatManager formats;
 
-    // Un único hilo de carga: los pedidos se procesan en orden.
-    juce::ThreadPool loaderPool { juce::ThreadPoolOptions{}.withThreadName ("NzDrum loader")
-                                                           .withNumberOfThreads (1) };
-
     std::array<SampleSlot, numPads> slots;
 
     // Lo que la UI muestra de cada pad. Lo comparten la UI y el hilo de carga
@@ -122,6 +118,16 @@ private:
     std::atomic<double> hostBpm { 0.0 };
     std::atomic<double> hostPpq { 0.0 };
     std::atomic<bool> hostPlaying { false };
+
+    // Duración de cada sample cargado, para informar el "tail" al host.
+    std::array<std::atomic<double>, numPads> sampleSeconds {};
+
+    // Un único hilo de carga: los pedidos se procesan en orden.
+    // Va último a propósito: los miembros se destruyen en orden inverso, así
+    // que el pool (y cualquier carga en curso) termina antes que los slots,
+    // padFiles y contadores que esas cargas usan.
+    juce::ThreadPool loaderPool { juce::ThreadPoolOptions{}.withThreadName ("NzDrum loader")
+                                                           .withNumberOfThreads (1) };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (NzDrumProcessor)
 };
