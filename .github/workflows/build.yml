@@ -24,8 +24,11 @@ jobs:
           -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
           -DNZDRUM_COPY_AFTER_BUILD=OFF
 
-      - name: Compilar VST3
-        run: cmake --build build --target NzDrum_VST3 --parallel 4
+      - name: Compilar VST3 y pruebas
+        run: cmake --build build --target NzDrum_VST3 NzDrumTests --parallel 4
+
+      - name: Correr pruebas del motor
+        run: ./build/NzDrumTests_artefacts/Release/NzDrumTests
 
       - name: Validar con pluginval
         run: |
