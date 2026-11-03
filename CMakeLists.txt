@@ -20,6 +20,7 @@ option(NZDRUM_COPY_AFTER_BUILD "Instalar el plugin en la carpeta del sistema al 
 
 juce_add_plugin(NzDrum
     COMPANY_NAME "Santiago Arcucci"
+    BUNDLE_ID com.santiagoarcucci.nzdrum   # sin espacios: Apple solo acepta letras, números, guiones y puntos
     PLUGIN_MANUFACTURER_CODE Sarc   # 4 caracteres, al menos una mayúscula
     PLUGIN_CODE Nzdm                # 4 caracteres, exactamente una mayúscula
     FORMATS VST3 Standalone         # Standalone sirve para probar sin abrir el DAW
