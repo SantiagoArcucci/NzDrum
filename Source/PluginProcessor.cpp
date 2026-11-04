@@ -287,7 +287,10 @@ void NzDrumProcessor::startVoice (int pad, const LoadedSample* sample, float vel
     if (! voice.playing)
         audibleGains[(size_t) pad] = blockAudible[(size_t) pad] ? 1.0f : 0.0f;
 
-    voice.position = start * lastIndex;
+    // La interpolación lee la muestra siguiente, así que la voz tiene que
+    // terminar a más tardar en la última muestra: el inicio queda al menos una
+    // muestra antes del final, aunque el host ponga inicio = 1.
+    voice.position = juce::jmin (start * lastIndex, lastIndex - 1.0);
     voice.endPosition = juce::jlimit (voice.position + 1.0, lastIndex, end * lastIndex);
 
     const float pitch = params.pitch->load (std::memory_order_relaxed);
@@ -371,7 +374,7 @@ void NzDrumProcessor::renderVoices (juce::AudioBuffer<float>& buffer, int startS
                 // Un archivo mono suena igual en los dos canales.
                 const int sourceChannel = juce::jmin (channel, sourceChannels - 1);
                 const float a = source.getSample (sourceChannel, index);
-                const float b = source.getSample (sourceChannel, index + 1);
+                const float b = source.getSample (sourceChannel, juce::jmin (index + 1, source.getNumSamples() - 1));
 
                 const float channelGain = numOutputChannels == 1 ? 0.5f * (voice.gainLeft + voice.gainRight)
                                                                  : (channel == 0 ? voice.gainLeft : voice.gainRight);
