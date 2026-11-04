@@ -69,6 +69,7 @@ public:
         const auto kick2 = writeTestWav (folder, "kick2.wav", 4000);
         const auto kick10 = writeTestWav (folder, "kick10.wav", 4000);
         folder.getChildFile ("notas.txt").replaceWithText ("no soy audio");
+        folder.getChildFile ("kick1b.wav").replaceWithText ("extension de audio, contenido roto");
 
         NzDrumProcessor p;
         p.setPlayConfigDetails (0, 2, testSampleRate, blockSize);
@@ -123,6 +124,19 @@ public:
             p.triggerFromUi (0, 0.8f);
             expectGreaterThan (peak (runBlock (p), 0, blockSize), 0.1f);
             expectEquals ((int) p.getTriggerCount (0), (int) before + 1);
+        }
+
+        beginTest ("Siguiente salta un archivo roto en vez de quedarse trabado");
+        {
+            p.loadSample (0, kick1);
+            expect (waitUntilLoaded (p, 0));
+            p.stepSample (0, +1);   // el vecino es kick1b.wav, que no se puede leer
+            expect (waitUntilLoaded (p, 0));
+            expectEquals (p.getPadFile (0).getFileName(), juce::String ("kick2.wav"));
+
+            p.stepSample (0, -1);   // y para atras tambien lo salta
+            expect (waitUntilLoaded (p, 0));
+            expectEquals (p.getPadFile (0).getFileName(), juce::String ("kick1.wav"));
         }
 
         beginTest ("Siguiente recorre la carpeta en orden natural e ignora lo que no es audio");

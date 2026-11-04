@@ -91,7 +91,7 @@ private:
     void startVoice (int pad, const LoadedSample* sample, float velocity) noexcept;
     void renderVoices (juce::AudioBuffer<float>& buffer, int startSample, int endSample) noexcept;
     std::unique_ptr<LoadedSample> readFile (const juce::File& file);
-    juce::File findNeighbour (const juce::File& current, int direction) const;
+    juce::Array<juce::File> listAudioFilesNextTo (const juce::File& current) const;
     void finishLoad (int pad, const juce::File& file, std::unique_ptr<LoadedSample> sample);
 
     // Formatos de audio: se registran en el constructor y después solo se

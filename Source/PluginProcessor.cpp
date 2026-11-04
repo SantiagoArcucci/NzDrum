@@ -195,8 +195,26 @@ void NzDrumProcessor::stepSample (int pad, int direction)
         // Leemos el archivo actual recién acá, en el hilo de carga: si se hace
         // click en "siguiente" varias veces seguidas, cada pedido parte del
         // resultado del anterior y no del mismo archivo.
-        const auto target = findNeighbour (getPadFile (pad), direction);
-        finishLoad (pad, target, target.existsAsFile() ? readFile (target) : nullptr);
+        const auto current = getPadFile (pad);
+        const auto files = listAudioFilesNextTo (current);
+        const int count = files.size();
+        const int start = juce::jmax (0, files.indexOf (current));
+
+        // Si el vecino no se puede leer (archivo roto o vacío), seguimos en la
+        // misma dirección hasta encontrar uno que sí, sin pasar por todos más
+        // de una vez. Si no hay ninguno, el pad se queda como estaba.
+        for (int offset = 1; offset < count; ++offset)
+        {
+            const auto& candidate = files.getReference (((start + offset * direction) % count + count) % count);
+
+            if (auto sample = readFile (candidate))
+            {
+                finishLoad (pad, candidate, std::move (sample));
+                return;
+            }
+        }
+
+        finishLoad (pad, {}, nullptr);
     });
 }
 
@@ -243,7 +261,7 @@ std::unique_ptr<LoadedSample> NzDrumProcessor::readFile (const juce::File& file)
     return sample;
 }
 
-juce::File NzDrumProcessor::findNeighbour (const juce::File& current, int direction) const
+juce::Array<juce::File> NzDrumProcessor::listAudioFilesNextTo (const juce::File& current) const
 {
     if (! current.existsAsFile())
         return {};
@@ -254,18 +272,13 @@ juce::File NzDrumProcessor::findNeighbour (const juce::File& current, int direct
     // macOS deja archivos "._algo" en discos externos; no son audio.
     files.removeIf ([] (const juce::File& f) { return f.isHidden() || f.getFileName().startsWith ("._"); });
 
-    if (files.isEmpty())
-        return {};
-
     // Orden "natural", como Finder: kick2 va antes que kick10.
     std::sort (files.begin(), files.end(), [] (const juce::File& a, const juce::File& b)
     {
         return a.getFileName().compareNatural (b.getFileName()) < 0;
     });
 
-    const int count = files.size();
-    const int index = juce::jmax (0, files.indexOf (current));
-    return files[((index + direction) % count + count) % count];
+    return files;
 }
 
 void NzDrumProcessor::triggerFromUi (int pad, float velocity) noexcept
