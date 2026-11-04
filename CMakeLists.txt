@@ -36,7 +36,8 @@ juce_add_plugin(NzDrum
 target_sources(NzDrum
     PRIVATE
         Source/PluginProcessor.cpp
-        Source/PluginEditor.cpp)
+        Source/PluginEditor.cpp
+        Source/PadComponent.cpp)
 
 target_compile_definitions(NzDrum
     PUBLIC
@@ -51,3 +52,30 @@ target_link_libraries(NzDrum
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags
         juce::juce_recommended_warning_flags)
+
+# ---- Pruebas del motor (sin DAW) ----
+option(NZDRUM_BUILD_TESTS "Compilar las pruebas del motor" ON)
+
+if(NZDRUM_BUILD_TESTS)
+    juce_add_console_app(NzDrumTests PRODUCT_NAME "NzDrumTests")
+
+    target_sources(NzDrumTests
+        PRIVATE
+            Tests/EngineTests.cpp
+            Source/PluginProcessor.cpp
+            Source/PluginEditor.cpp
+            Source/PadComponent.cpp)
+
+    target_compile_definitions(NzDrumTests
+        PRIVATE
+            JucePlugin_Name="NzDrum"
+            JUCE_WEB_BROWSER=0
+            JUCE_USE_CURL=0)
+
+    target_link_libraries(NzDrumTests
+        PRIVATE
+            juce::juce_audio_utils
+        PUBLIC
+            juce::juce_recommended_config_flags
+            juce::juce_recommended_warning_flags)
+endif()
