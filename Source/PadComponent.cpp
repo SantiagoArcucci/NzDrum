@@ -75,8 +75,9 @@ void PadComponent::paint (juce::Graphics& g)
     g.setColour (padColour.interpolatedWith (accentColour, flash * 0.6f));
     g.fillRoundedRectangle (bounds, 8.0f);
 
-    g.setColour (dragHover ? accentColour : padColour.brighter (0.3f));
-    g.drawRoundedRectangle (bounds, 8.0f, dragHover ? 2.0f : 1.0f);
+    const bool highlighted = dragHover || selected;
+    g.setColour (highlighted ? accentColour : padColour.brighter (0.3f));
+    g.drawRoundedRectangle (bounds, 8.0f, highlighted ? 2.0f : 1.0f);
 
     auto textArea = getLocalBounds().reduced (12, 10);
 
@@ -111,6 +112,18 @@ void PadComponent::resized()
 void PadComponent::mouseDown (const juce::MouseEvent&)
 {
     nzProcessor.triggerFromUi (pad, uiVelocity);
+
+    if (onSelect)
+        onSelect (pad);
+}
+
+void PadComponent::setSelected (bool shouldBeSelected)
+{
+    if (selected != shouldBeSelected)
+    {
+        selected = shouldBeSelected;
+        repaint();
+    }
 }
 
 void PadComponent::openFileChooser()

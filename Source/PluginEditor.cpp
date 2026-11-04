@@ -4,6 +4,7 @@ namespace
 {
     constexpr int headerHeight = 64;
     constexpr int gridColumns = 4;
+    constexpr int sequencerHeight = 72;
 }
 
 NzDrumEditor::NzDrumEditor (NzDrumProcessor& p)
@@ -12,10 +13,14 @@ NzDrumEditor::NzDrumEditor (NzDrumProcessor& p)
     for (int pad = 0; pad < NzDrumProcessor::numPads; ++pad)
     {
         pads.push_back (std::make_unique<PadComponent> (nzProcessor, pad));
+        pads.back()->onSelect = [this] (int selected) { selectPad (selected); };
         addAndMakeVisible (*pads.back());
     }
 
-    setSize (640, 600);
+    addAndMakeVisible (sequencer);
+    selectPad (0);
+
+    setSize (640, 680);
     startTimerHz (30);
 }
 
@@ -43,7 +48,9 @@ void NzDrumEditor::paint (juce::Graphics& g)
 
 void NzDrumEditor::resized()
 {
-    auto grid = getLocalBounds().withTrimmedTop (headerHeight).reduced (14, 0).withTrimmedBottom (14);
+    auto area = getLocalBounds().withTrimmedTop (headerHeight);
+    sequencer.setBounds (area.removeFromBottom (sequencerHeight).reduced (14, 4));
+    auto grid = area.reduced (14, 0);
 
     const int rows = NzDrumProcessor::numPads / gridColumns;
     const int cellWidth = grid.getWidth() / gridColumns;
@@ -67,6 +74,16 @@ void NzDrumEditor::timerCallback()
     for (auto& pad : pads)
         pad->refresh();
 
+    sequencer.refresh();
+
     // El encabezado muestra el transporte, que cambia todo el tiempo.
     repaint (getLocalBounds().removeFromTop (headerHeight));
+}
+
+void NzDrumEditor::selectPad (int pad)
+{
+    for (int i = 0; i < (int) pads.size(); ++i)
+        pads[(size_t) i]->setSelected (i == pad);
+
+    sequencer.setPad (pad);
 }
