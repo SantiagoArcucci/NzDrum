@@ -15,9 +15,19 @@ juce::String NzDrumProcessor::paramId (int pad, const char* name)
     return "pad" + juce::String (pad + 1) + "_" + name;
 }
 
+bool NzDrumProcessor::isValidPatternLength (int length) noexcept
+{
+    return length == 4 || length == 8 || length == 16 || length == 32;
+}
+
 juce::AudioProcessorValueTreeState::ParameterLayout NzDrumProcessor::createParameterLayout()
 {
     juce::AudioProcessorValueTreeState::ParameterLayout layout;
+
+    layout.add (std::make_unique<juce::AudioParameterFloat> (juce::ParameterID { "swing", 1 }, "Swing",
+                                                             juce::NormalisableRange<float> (minSwing, maxSwing, 0.1f), minSwing,
+                                                             juce::AudioParameterFloatAttributes().withLabel ("%")
+                                                                 .withStringFromValueFunction ([] (float v, int) { return juce::String (v, 1); })));
 
     // El 1 de ParameterID es la versión: si algún día cambia un parámetro,
     // los hosts lo usan para no confundirlo con el anterior.
@@ -87,6 +97,11 @@ NzDrumProcessor::NzDrumProcessor()
         p.mute = parameters.getRawParameterValue (paramId (pad, "mute"));
         p.solo = parameters.getRawParameterValue (paramId (pad, "solo"));
     }
+
+    swingParameter = parameters.getRawParameterValue ("swing");
+
+    for (auto& length : patternLengths)
+        length.store (defaultPatternLength, std::memory_order_relaxed);
 
     formats.registerBasicFormats();   // WAV, AIFF, FLAC, Ogg y, en Mac, MP3/M4A vía CoreAudio
     startTimerHz (10);                // recolector de samples descartados
@@ -163,9 +178,17 @@ void NzDrumProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
     }
 
     if (position.hasValue() && position->getIsPlaying())
+    {
         collectSequencerEvents (*position, numSamples);
+    }
     else
+    {
+        // Detenido: el patrón pedido pasa a ser el actual de inmediato.
+        sequencerRunning = false;
+        currentPattern = selectedPattern.load (std::memory_order_relaxed);
+        playingPattern.store (currentPattern, std::memory_order_relaxed);
         playingStep.store (-1, std::memory_order_relaxed);
+    }
 
     for (const auto metadata : midi)
     {
@@ -225,6 +248,7 @@ void NzDrumProcessor::collectSequencerEvents (const juce::AudioPlayHead::Positio
 
     if (! bpm.hasValue() || ! ppq.hasValue() || *bpm <= 0.0)
     {
+        sequencerRunning = false;
         playingStep.store (-1, std::memory_order_relaxed);
         return;
     }
@@ -235,31 +259,77 @@ void NzDrumProcessor::collectSequencerEvents (const juce::AudioPlayHead::Positio
     const double blockStart = *ppq;
     const double blockEnd = blockStart + numSamples / samplesPerQuarter;
 
-    const auto wrap = [] (juce::int64 index) { return (int) (((index % numSteps) + numSteps) % numSteps); };
+    // Si el transporte recién arranca o saltó (loop, click en la regla), nos
+    // realineamos a la grilla del host: el paso 1 del patrón cae en los
+    // compases. Un pedido de patrón pendiente se aplica en ese momento.
+    constexpr double jumpTolerance = 0.01;   // negras
 
-    playingStep.store (wrap ((juce::int64) std::floor (blockStart / stepLengthPpq)), std::memory_order_relaxed);
-
-    // Primer paso que empieza dentro del bloque. El margen chico evita perder
-    // un paso que cae justo en el inicio por error de redondeo; el siguiente
-    // bloque no lo repite porque el fin del bloque es excluyente.
-    constexpr double epsilon = 1.0e-9;
-    auto stepIndex = (juce::int64) std::ceil (blockStart / stepLengthPpq - epsilon);
-
-    for (; stepIndex * stepLengthPpq < blockEnd; ++stepIndex)
+    if (! sequencerRunning || std::abs (blockStart - expectedBlockStart) > jumpTolerance)
     {
-        const double stepPpq = (double) stepIndex * stepLengthPpq;
-        const int offset = juce::jlimit (0, numSamples - 1,
-                                         (int) std::llround ((stepPpq - blockStart) * samplesPerQuarter));
-        const int step = wrap (stepIndex);
+        currentPattern = selectedPattern.load (std::memory_order_relaxed);
+        patternAnchor = 0;
+    }
+
+    sequencerRunning = true;
+    expectedBlockStart = blockEnd;
+
+    // Swing: la semicorchea impar (0-based) de cada par se corre. A 50% cae
+    // en la mitad del par; a 75%, a tres cuartos.
+    const float swing = juce::jlimit (minSwing, maxSwing, swingParameter->load (std::memory_order_relaxed));
+    const double swingOffset = (swing / 100.0 - 0.5) * 2.0 * stepLengthPpq;
+
+    const auto stepTime = [swingOffset] (juce::int64 index)
+    {
+        return (double) index * stepLengthPpq + ((index & 1) != 0 ? swingOffset : 0.0);
+    };
+
+    const auto positionInPattern = [this] (juce::int64 index)
+    {
+        const auto length = (juce::int64) patternLengths[(size_t) currentPattern].load (std::memory_order_relaxed);
+        return (int) ((((index - patternAnchor) % length) + length) % length);
+    };
+
+    // Recorremos las semicorcheas que caen dentro del bloque, en orden. El
+    // margen chico evita perder un paso que cae justo en el inicio por
+    // redondeo; el siguiente bloque no lo repite porque el fin es excluyente.
+    constexpr double epsilon = 1.0e-9;
+    auto index = (juce::int64) std::floor (blockStart / stepLengthPpq) - 1;
+
+    for (; (double) index * stepLengthPpq < blockEnd; ++index)
+    {
+        const double time = stepTime (index);
+
+        if (time < blockStart - epsilon || time >= blockEnd)
+            continue;
+
+        // Al terminar el patrón (vuelve al paso 1) entra el pedido pendiente.
+        if (positionInPattern (index) == 0)
+        {
+            const int requested = selectedPattern.load (std::memory_order_relaxed);
+
+            if (requested != currentPattern)
+            {
+                currentPattern = requested;
+                patternAnchor = index;
+            }
+        }
+
+        const int step = positionInPattern (index);
+        const int offset = juce::jlimit (0, numSamples - 1, (int) std::llround ((time - blockStart) * samplesPerQuarter));
 
         for (int pad = 0; pad < numPads; ++pad)
         {
-            const auto level = getStep (pad, step);
+            const auto level = getStep (currentPattern, pad, step);
 
             if (level != StepLevel::off)
                 addEvent (offset, pad, gainFor (level));
         }
     }
+
+    // Para la UI: el último paso que empezó dentro del bloque (sin swing:
+    // alcanza para iluminarlo).
+    playingStep.store (positionInPattern ((juce::int64) std::floor (blockEnd / stepLengthPpq - epsilon)), std::memory_order_relaxed);
+    playingPattern.store (currentPattern, std::memory_order_relaxed);
 }
 
 void NzDrumProcessor::startVoice (int pad, const LoadedSample* sample, float velocity) noexcept
@@ -522,15 +592,49 @@ bool NzDrumProcessor::isPadAudible (int pad) const noexcept
     return ! anySolo || params.solo->load (std::memory_order_relaxed) >= 0.5f;
 }
 
-void NzDrumProcessor::setStep (int pad, int step, StepLevel level) noexcept
+void NzDrumProcessor::setStep (int pattern, int pad, int step, StepLevel level) noexcept
 {
-    if (pad >= 0 && pad < numPads && step >= 0 && step < numSteps)
-        steps[(size_t) (pad * numSteps + step)].store ((uint8_t) level, std::memory_order_relaxed);
+    if (juce::isPositiveAndBelow (pattern, numPatterns) && juce::isPositiveAndBelow (pad, numPads)
+        && juce::isPositiveAndBelow (step, maxSteps))
+        steps[stepIndex (pattern, pad, step)].store ((uint8_t) level, std::memory_order_relaxed);
 }
 
-StepLevel NzDrumProcessor::getStep (int pad, int step) const noexcept
+StepLevel NzDrumProcessor::getStep (int pattern, int pad, int step) const noexcept
 {
-    return (StepLevel) steps[(size_t) (pad * numSteps + step)].load (std::memory_order_relaxed);
+    if (! juce::isPositiveAndBelow (pattern, numPatterns) || ! juce::isPositiveAndBelow (pad, numPads)
+        || ! juce::isPositiveAndBelow (step, maxSteps))
+        return StepLevel::off;
+
+    return (StepLevel) steps[stepIndex (pattern, pad, step)].load (std::memory_order_relaxed);
+}
+
+void NzDrumProcessor::setPatternLength (int pattern, int length) noexcept
+{
+    if (juce::isPositiveAndBelow (pattern, numPatterns) && isValidPatternLength (length))
+        patternLengths[(size_t) pattern].store (length, std::memory_order_relaxed);
+}
+
+int NzDrumProcessor::getPatternLength (int pattern) const noexcept
+{
+    return juce::isPositiveAndBelow (pattern, numPatterns)
+               ? patternLengths[(size_t) pattern].load (std::memory_order_relaxed)
+               : defaultPatternLength;
+}
+
+void NzDrumProcessor::selectPattern (int pattern) noexcept
+{
+    if (juce::isPositiveAndBelow (pattern, numPatterns))
+        selectedPattern.store (pattern, std::memory_order_relaxed);
+}
+
+int NzDrumProcessor::getSelectedPattern() const noexcept
+{
+    return selectedPattern.load (std::memory_order_relaxed);
+}
+
+int NzDrumProcessor::getPlayingPattern() const noexcept
+{
+    return playingPattern.load (std::memory_order_relaxed);
 }
 
 int NzDrumProcessor::getPlayingStep() const noexcept

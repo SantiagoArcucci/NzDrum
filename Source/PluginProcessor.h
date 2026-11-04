@@ -15,8 +15,11 @@ enum class StepLevel : uint8_t { off = 0, low, normal, accent };
 //     click en la UI o con una nota MIDI (pad 1 = C1, nota 36).
 //   - Desde el pad se puede pasar al archivo anterior o siguiente de la misma
 //     carpeta.
-//   - Un secuenciador de 16 pasos por pad, con tres niveles (bajo, normal y
-//     acento), sigue el play y el tempo del host con precisión de muestra.
+//   - Un banco de 16 patrones. Cada patrón tiene un largo (4, 8, 16 o 32
+//     semicorcheas) y, por pad, pasos con tres niveles (bajo, normal y
+//     acento). Sigue el play y el tempo del host con precisión de muestra,
+//     con swing global. Al elegir otro patrón mientras suena, el cambio
+//     espera a que termine el actual.
 //   - Cada pad tiene volumen, pan, pitch, decay, inicio, fin, mute y solo como parámetros
 //     del host: se pueden automatizar en el DAW.
 class NzDrumProcessor final : public juce::AudioProcessor,
@@ -25,8 +28,18 @@ class NzDrumProcessor final : public juce::AudioProcessor,
 public:
     static constexpr int numPads = 16;
     static constexpr int firstMidiNote = 36;   // C1 en Studio Pro
-    static constexpr int numSteps = 16;        // semicorcheas; el largo variable llega en la etapa 4
+    static constexpr int numPatterns = 16;     // un banco
+    static constexpr int maxSteps = 32;        // semicorcheas
+    static constexpr int defaultPatternLength = 16;
     static constexpr double stepLengthPpq = 0.25;
+
+    // Swing global, al estilo MPC: 50% es recto y 75% es el shuffle más
+    // marcado. Corre las semicorcheas pares (2, 4, 6...).
+    static constexpr float minSwing = 50.0f;
+    static constexpr float maxSwing = 75.0f;
+
+    // Largos de patrón permitidos.
+    static bool isValidPatternLength (int length) noexcept;
 
     // Rangos de los parámetros por pad.
     static constexpr float minLevelDb = -48.0f;    // el mínimo equivale a silencio
@@ -86,10 +99,19 @@ public:
     juce::String getSupportedWildcard() const;
 
     // ---- Secuenciador (hilo de UI) ----
-    void setStep (int pad, int step, StepLevel level) noexcept;
-    StepLevel getStep (int pad, int step) const noexcept;
+    void setStep (int pattern, int pad, int step, StepLevel level) noexcept;
+    StepLevel getStep (int pattern, int pad, int step) const noexcept;
 
-    // Paso que está sonando ahora, o -1 si el host está detenido.
+    void setPatternLength (int pattern, int length) noexcept;
+    int getPatternLength (int pattern) const noexcept;
+
+    // Pide pasar a otro patrón. Con el host detenido cambia enseguida;
+    // sonando, al terminar el patrón actual.
+    void selectPattern (int pattern) noexcept;
+    int getSelectedPattern() const noexcept;   // el último pedido
+    int getPlayingPattern() const noexcept;    // el que suena (o sonaría)
+
+    // Paso del patrón que suena, o -1 si el host está detenido.
     int getPlayingStep() const noexcept;
 
     // Si el pad se escucha según mute y solo: si hay algún pad en solo, solo
@@ -196,11 +218,26 @@ private:
     std::array<TriggerEvent, maxEventsPerBlock> events {};
     int numEvents = 0;
 
-    // El patrón: un atómico por paso. La UI escribe pasos sueltos y el audio
-    // los lee; como cada paso es independiente, no hace falta copiar el
-    // patrón entero ni sincronizar nada más.
-    std::array<std::atomic<uint8_t>, (size_t) (numPads * numSteps)> steps {};
+    // Los patrones: un atómico por paso. La UI escribe pasos sueltos y el
+    // audio los lee; como cada paso es independiente, no hace falta copiar el
+    // patrón entero ni sincronizar nada más. Son 16 x 16 x 32 = 8192 bytes.
+    static size_t stepIndex (int pattern, int pad, int step) noexcept
+    {
+        return (size_t) ((pattern * numPads + pad) * maxSteps + step);
+    }
+
+    std::array<std::atomic<uint8_t>, (size_t) (numPatterns * numPads * maxSteps)> steps {};
+    std::array<std::atomic<int>, numPatterns> patternLengths;
+    std::atomic<int> selectedPattern { 0 };
+    std::atomic<int> playingPattern { 0 };
     std::atomic<int> playingStep { -1 };
+    std::atomic<float>* swingParameter = nullptr;
+
+    // Estado del secuenciador en el hilo de audio.
+    int currentPattern = 0;
+    juce::int64 patternAnchor = 0;   // semicorchea absoluta en la que empezó el patrón actual
+    double expectedBlockStart = 0.0; // dónde debería empezar el próximo bloque, en negras
+    bool sequencerRunning = false;
 
     std::atomic<double> hostBpm { 0.0 };
     std::atomic<double> hostPpq { 0.0 };
