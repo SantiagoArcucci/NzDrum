@@ -50,14 +50,19 @@ void NzDrumProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
     juce::ScopedNoDenormals noDenormals;
     buffer.clear();
 
+    const int numSamples = buffer.getNumSamples();
+    numEvents = 0;
+
+    juce::Optional<juce::AudioPlayHead::PositionInfo> position;
+
     if (auto* hostPlayHead = getPlayHead())
+        position = hostPlayHead->getPosition();
+
+    if (position.hasValue())
     {
-        if (const auto position = hostPlayHead->getPosition())
-        {
-            hostBpm.store (position->getBpm().orFallback (0.0), std::memory_order_relaxed);
-            hostPpq.store (position->getPpqPosition().orFallback (0.0), std::memory_order_relaxed);
-            hostPlaying.store (position->getIsPlaying(), std::memory_order_relaxed);
-        }
+        hostBpm.store (position->getBpm().orFallback (0.0), std::memory_order_relaxed);
+        hostPpq.store (position->getPpqPosition().orFallback (0.0), std::memory_order_relaxed);
+        hostPlaying.store (position->getIsPlaying(), std::memory_order_relaxed);
     }
 
     // 1. Tomamos los samples nuevos que haya dejado el hilo de carga. Si un pad
@@ -71,26 +76,24 @@ void NzDrumProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
             voices[(size_t) pad].playing = false;
     }
 
-    // 2. Clicks de la UI: suenan al inicio del bloque.
+    // 2. Juntamos todos los disparos del bloque en una sola lista:
+    //    clicks de la UI (al inicio del bloque), pasos del secuenciador y
+    //    notas MIDI, cada uno con su muestra exacta.
     for (int pad = 0; pad < numPads; ++pad)
     {
         const float velocity = uiTriggers[(size_t) pad].exchange (0.0f, std::memory_order_acq_rel);
 
         if (velocity > 0.0f)
-            startVoice (pad, blockSamples[(size_t) pad], velocity);
+            addEvent (0, pad, velocity);
     }
 
-    // 3. MIDI con precisión de muestra: renderizamos hasta cada evento,
-    //    disparamos y seguimos.
-    const int numSamples = buffer.getNumSamples();
-    int cursor = 0;
+    if (position.hasValue() && position->getIsPlaying())
+        collectSequencerEvents (*position, numSamples);
+    else
+        playingStep.store (-1, std::memory_order_relaxed);
 
     for (const auto metadata : midi)
     {
-        const int eventPosition = juce::jlimit (0, numSamples, metadata.samplePosition);
-        renderVoices (buffer, cursor, eventPosition);
-        cursor = eventPosition;
-
         const auto message = metadata.getMessage();
 
         if (message.isNoteOn())
@@ -98,11 +101,86 @@ void NzDrumProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
             const int pad = message.getNoteNumber() - firstMidiNote;
 
             if (pad >= 0 && pad < numPads)
-                startVoice (pad, blockSamples[(size_t) pad], message.getFloatVelocity());
+                addEvent (juce::jlimit (0, numSamples, metadata.samplePosition), pad, message.getFloatVelocity());
         }
     }
 
+    // Ordenamos por muestra con insertion sort: std::sort y std::stable_sort
+    // pueden reservar memoria, y la lista es corta. Es estable, así que dos
+    // disparos en la misma muestra mantienen el orden de llegada.
+    for (int i = 1; i < numEvents; ++i)
+    {
+        const auto event = events[(size_t) i];
+        int j = i - 1;
+
+        for (; j >= 0 && events[(size_t) j].offset > event.offset; --j)
+            events[(size_t) (j + 1)] = events[(size_t) j];
+
+        events[(size_t) (j + 1)] = event;
+    }
+
+    // 3. Renderizamos hasta cada disparo, disparamos y seguimos.
+    int cursor = 0;
+
+    for (int i = 0; i < numEvents; ++i)
+    {
+        const auto& event = events[(size_t) i];
+        renderVoices (buffer, cursor, event.offset);
+        cursor = event.offset;
+        startVoice (event.pad, blockSamples[(size_t) event.pad], event.velocity);
+    }
+
     renderVoices (buffer, cursor, numSamples);
+}
+
+void NzDrumProcessor::addEvent (int offset, int pad, float velocity) noexcept
+{
+    if (numEvents < maxEventsPerBlock)
+        events[(size_t) numEvents++] = { offset, pad, velocity };
+}
+
+void NzDrumProcessor::collectSequencerEvents (const juce::AudioPlayHead::PositionInfo& position, int numSamples) noexcept
+{
+    const auto bpm = position.getBpm();
+    const auto ppq = position.getPpqPosition();
+
+    if (! bpm.hasValue() || ! ppq.hasValue() || *bpm <= 0.0)
+    {
+        playingStep.store (-1, std::memory_order_relaxed);
+        return;
+    }
+
+    // El host nos dice en qué negra empieza el bloque (PPQ). Con el tempo
+    // sabemos cuántas muestras dura una negra, y de ahí dónde cae cada paso.
+    const double samplesPerQuarter = currentSampleRate * 60.0 / *bpm;
+    const double blockStart = *ppq;
+    const double blockEnd = blockStart + numSamples / samplesPerQuarter;
+
+    const auto wrap = [] (juce::int64 index) { return (int) (((index % numSteps) + numSteps) % numSteps); };
+
+    playingStep.store (wrap ((juce::int64) std::floor (blockStart / stepLengthPpq)), std::memory_order_relaxed);
+
+    // Primer paso que empieza dentro del bloque. El margen chico evita perder
+    // un paso que cae justo en el inicio por error de redondeo; el siguiente
+    // bloque no lo repite porque el fin del bloque es excluyente.
+    constexpr double epsilon = 1.0e-9;
+    auto stepIndex = (juce::int64) std::ceil (blockStart / stepLengthPpq - epsilon);
+
+    for (; stepIndex * stepLengthPpq < blockEnd; ++stepIndex)
+    {
+        const double stepPpq = (double) stepIndex * stepLengthPpq;
+        const int offset = juce::jlimit (0, numSamples - 1,
+                                         (int) std::llround ((stepPpq - blockStart) * samplesPerQuarter));
+        const int step = wrap (stepIndex);
+
+        for (int pad = 0; pad < numPads; ++pad)
+        {
+            const auto level = getStep (pad, step);
+
+            if (level != StepLevel::off)
+                addEvent (offset, pad, gainFor (level));
+        }
+    }
 }
 
 void NzDrumProcessor::startVoice (int pad, const LoadedSample* sample, float velocity) noexcept
@@ -266,6 +344,35 @@ juce::File NzDrumProcessor::findNeighbour (const juce::File& current, int direct
     const int count = files.size();
     const int index = juce::jmax (0, files.indexOf (current));
     return files[((index + direction) % count + count) % count];
+}
+
+void NzDrumProcessor::setStep (int pad, int step, StepLevel level) noexcept
+{
+    if (pad >= 0 && pad < numPads && step >= 0 && step < numSteps)
+        steps[(size_t) (pad * numSteps + step)].store ((uint8_t) level, std::memory_order_relaxed);
+}
+
+StepLevel NzDrumProcessor::getStep (int pad, int step) const noexcept
+{
+    return (StepLevel) steps[(size_t) (pad * numSteps + step)].load (std::memory_order_relaxed);
+}
+
+int NzDrumProcessor::getPlayingStep() const noexcept
+{
+    return playingStep.load (std::memory_order_relaxed);
+}
+
+float NzDrumProcessor::gainFor (StepLevel level) noexcept
+{
+    switch (level)
+    {
+        case StepLevel::low:    return 0.45f;
+        case StepLevel::normal: return 0.75f;
+        case StepLevel::accent: return 1.0f;
+        case StepLevel::off:    break;
+    }
+
+    return 0.0f;
 }
 
 void NzDrumProcessor::triggerFromUi (int pad, float velocity) noexcept

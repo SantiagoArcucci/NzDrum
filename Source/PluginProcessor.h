@@ -7,18 +7,24 @@
 
 #include "SampleSlot.h"
 
-// Etapa 2: sampler de 16 pads.
+// Nivel de un paso del secuenciador. off = el paso no suena.
+enum class StepLevel : uint8_t { off = 0, low, normal, accent };
+
+// NzDrum: sampler de 16 pads con secuenciador por pasos.
 //   - Cada pad carga un archivo de audio (en segundo plano) y suena con un
 //     click en la UI o con una nota MIDI (pad 1 = C1, nota 36).
 //   - Desde el pad se puede pasar al archivo anterior o siguiente de la misma
 //     carpeta.
-//   - Seguimos leyendo el transporte del host para la etapa 3.
+//   - Un secuenciador de 16 pasos por pad, con tres niveles (bajo, normal y
+//     acento), sigue el play y el tempo del host con precisión de muestra.
 class NzDrumProcessor final : public juce::AudioProcessor,
                               private juce::Timer
 {
 public:
     static constexpr int numPads = 16;
     static constexpr int firstMidiNote = 36;   // C1 en Studio Pro
+    static constexpr int numSteps = 16;        // semicorcheas; el largo variable llega en la etapa 4
+    static constexpr double stepLengthPpq = 0.25;
 
     NzDrumProcessor();
     ~NzDrumProcessor() override;
@@ -67,6 +73,16 @@ public:
     bool isSupportedFile (const juce::File& file) const;
     juce::String getSupportedWildcard() const;
 
+    // ---- Secuenciador (hilo de UI) ----
+    void setStep (int pad, int step, StepLevel level) noexcept;
+    StepLevel getStep (int pad, int step) const noexcept;
+
+    // Paso que está sonando ahora, o -1 si el host está detenido.
+    int getPlayingStep() const noexcept;
+
+    // Cuánto suena cada nivel. Por ahora fijo; editable por pad más adelante.
+    static float gainFor (StepLevel level) noexcept;
+
     struct TransportSnapshot
     {
         double bpm = 0.0;
@@ -87,7 +103,17 @@ private:
         bool playing = false;
     };
 
+    // Un disparo dentro del bloque actual, venga del secuenciador o del MIDI.
+    struct TriggerEvent
+    {
+        int offset = 0;     // muestra dentro del bloque
+        int pad = 0;
+        float velocity = 0.0f;
+    };
+
     void timerCallback() override;
+    void addEvent (int offset, int pad, float velocity) noexcept;
+    void collectSequencerEvents (const juce::AudioPlayHead::PositionInfo& position, int numSamples) noexcept;
     void startVoice (int pad, const LoadedSample* sample, float velocity) noexcept;
     void renderVoices (juce::AudioBuffer<float>& buffer, int startSample, int endSample) noexcept;
     std::unique_ptr<LoadedSample> readFile (const juce::File& file);
@@ -114,6 +140,18 @@ private:
     double currentSampleRate = 44100.0;
     std::array<PadVoice, numPads> voices;
     std::array<const LoadedSample*, numPads> blockSamples {};
+
+    // Lista de disparos del bloque, de tamaño fijo para no reservar memoria
+    // en el hilo de audio.
+    static constexpr int maxEventsPerBlock = 1024;
+    std::array<TriggerEvent, maxEventsPerBlock> events {};
+    int numEvents = 0;
+
+    // El patrón: un atómico por paso. La UI escribe pasos sueltos y el audio
+    // los lee; como cada paso es independiente, no hace falta copiar el
+    // patrón entero ni sincronizar nada más.
+    std::array<std::atomic<uint8_t>, (size_t) (numPads * numSteps)> steps {};
+    std::atomic<int> playingStep { -1 };
 
     std::atomic<double> hostBpm { 0.0 };
     std::atomic<double> hostPpq { 0.0 };

@@ -3,6 +3,7 @@
 // Correr con: cmake --build build --target NzDrumTests && ./build/NzDrumTests_artefacts/Release/NzDrumTests
 
 #include "../Source/PluginProcessor.h"
+#include "../Source/StepSequencerComponent.h"
 
 namespace
 {
@@ -47,6 +48,23 @@ namespace
                 result = juce::jmax (result, std::abs (b.getSample (ch, i)));
         return result;
     }
+
+    // Un host de mentira: dice tempo, play y en qué negra empieza el bloque.
+    struct FakePlayHead final : public juce::AudioPlayHead
+    {
+        double bpm = 120.0;
+        double ppq = 0.0;
+        bool playing = true;
+
+        juce::Optional<PositionInfo> getPosition() const override
+        {
+            PositionInfo info;
+            info.setBpm (bpm);
+            info.setPpqPosition (ppq);
+            info.setIsPlaying (playing);
+            return info;
+        }
+    };
 
     juce::AudioBuffer<float> runBlock (NzDrumProcessor& p, juce::MidiBuffer midi = {})
     {
@@ -165,7 +183,112 @@ public:
             expectEquals (peak (runBlock (p), 0, blockSize), 0.0f);
         }
 
+        runSequencerTests (kick1);
+        runClickTests();
+
         folder.deleteRecursively();
+    }
+
+    void runSequencerTests (const juce::File& sampleFile)
+    {
+        // A 120 BPM y 48 kHz una negra dura 24000 muestras y un paso, 6000.
+        constexpr double samplesPerQuarter = 24000.0;
+
+        NzDrumProcessor p;
+        FakePlayHead host;
+        p.setPlayHead (&host);
+        p.setPlayConfigDetails (0, 2, testSampleRate, blockSize);
+        p.prepareToPlay (testSampleRate, blockSize);
+        p.loadSample (0, sampleFile);
+        expect (waitUntilLoaded (p, 0));
+
+        const auto blockStartingAt = [&] (double ppq)
+        {
+            host.ppq = ppq;
+            return runBlock (p);
+        };
+
+        beginTest ("Sin pasos activos el secuenciador no suena");
+        {
+            expectEquals (peak (blockStartingAt (0.0), 0, blockSize), 0.0f);
+        }
+
+        beginTest ("Un paso suena en la muestra exacta dentro del bloque");
+        {
+            p.setStep (0, 1, StepLevel::normal);   // el paso 2 cae en la negra 0.25
+            const auto out = blockStartingAt (0.25 - 100.0 / samplesPerQuarter);
+            expectEquals (peak (out, 0, 100), 0.0f, "sono antes del paso");
+            expectGreaterThan (peak (out, 100, blockSize), 0.1f, "no sono en el paso");
+        }
+
+        beginTest ("Un paso justo en el borde suena una sola vez");
+        {
+            p.setStep (0, 1, StepLevel::off);
+            p.setStep (0, 2, StepLevel::normal);   // negra 0.5
+            const int before = (int) p.getTriggerCount (0);
+            blockStartingAt (0.5 - blockSize / samplesPerQuarter);   // termina justo en el paso
+            blockStartingAt (0.5);                                    // empieza justo en el paso
+            expectEquals ((int) p.getTriggerCount (0) - before, 1);
+            p.setStep (0, 2, StepLevel::off);
+        }
+
+        beginTest ("Con el host detenido no suena y no hay paso actual");
+        {
+            p.setStep (0, 0, StepLevel::normal);
+            host.playing = false;
+            for (int i = 0; i < 20; ++i) runBlock (p);
+            expectEquals (peak (blockStartingAt (0.0), 0, blockSize), 0.0f);
+            expectEquals (p.getPlayingStep(), -1);
+            host.playing = true;
+        }
+
+        beginTest ("El patron da la vuelta despues del paso 16");
+        {
+            for (int i = 0; i < 20; ++i) runBlock (p);   // dejamos terminar la voz anterior
+            host.playing = false; runBlock (p); host.playing = true;
+            const int before = (int) p.getTriggerCount (0);
+            blockStartingAt (4.0);   // negra 4 = paso 17 = paso 1 del patron
+            expectEquals ((int) p.getTriggerCount (0) - before, 1);
+            expectEquals (p.getPlayingStep(), 0);
+        }
+
+        beginTest ("El acento suena mas fuerte que el bajo, en la proporcion de sus niveles");
+        {
+            const auto peakFor = [&] (StepLevel level)
+            {
+                p.setStep (0, 0, level);
+                for (int i = 0; i < 20; ++i) { host.playing = false; runBlock (p); }
+                host.playing = true;
+                return peak (blockStartingAt (0.0), 0, blockSize);
+            };
+
+            const float low = peakFor (StepLevel::low);
+            const float accent = peakFor (StepLevel::accent);
+            expectWithinAbsoluteError (accent / low,
+                                       NzDrumProcessor::gainFor (StepLevel::accent) / NzDrumProcessor::gainFor (StepLevel::low),
+                                       0.01f);
+            p.setStep (0, 0, StepLevel::off);
+        }
+
+        p.setPlayHead (nullptr);
+    }
+
+    void runClickTests()
+    {
+        using Seq = StepSequencerComponent;
+        const juce::ModifierKeys none, shift (juce::ModifierKeys::shiftModifier), alt (juce::ModifierKeys::altModifier);
+
+        beginTest ("Click: normal, Shift: acento, Option: bajo; repetir apaga");
+        {
+            expect (Seq::levelAfterClick (StepLevel::off, none) == StepLevel::normal);
+            expect (Seq::levelAfterClick (StepLevel::normal, none) == StepLevel::off);
+            expect (Seq::levelAfterClick (StepLevel::off, shift) == StepLevel::accent);
+            expect (Seq::levelAfterClick (StepLevel::accent, shift) == StepLevel::off);
+            expect (Seq::levelAfterClick (StepLevel::off, alt) == StepLevel::low);
+            expect (Seq::levelAfterClick (StepLevel::low, alt) == StepLevel::off);
+            expect (Seq::levelAfterClick (StepLevel::accent, none) == StepLevel::normal);
+            expect (Seq::levelAfterClick (StepLevel::normal, shift) == StepLevel::accent);
+        }
     }
 };
 
