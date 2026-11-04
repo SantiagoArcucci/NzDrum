@@ -2,7 +2,8 @@
 
 #include "PluginProcessor.h"
 
-// La fila de 16 pasos del pad seleccionado.
+// Los pasos del pad seleccionado, en el patrón elegido. Hasta 16 pasos van
+// en una fila; con 32, en dos.
 //   click         -> normal (si ya era normal, lo apaga)
 //   Shift + click -> acento
 //   Option + click (Alt) -> bajo
@@ -16,7 +17,8 @@ public:
     void setPad (int newPad);
     int getPad() const noexcept { return pad; }
 
-    // La llama el editor a 30 Hz para mover el indicador de paso actual.
+    // La llama el editor a 30 Hz: sigue el patrón elegido, su largo y el paso
+    // que suena.
     void refresh();
 
     void paint (juce::Graphics&) override;
@@ -32,7 +34,9 @@ private:
 
     NzDrumProcessor& nzProcessor;
     int pad = 0;
-    int playingStep = -1;
+    int pattern = 0;
+    int length = NzDrumProcessor::defaultPatternLength;
+    int playingStep = -1;   // -1 si no suena este patrón
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (StepSequencerComponent)
 };

@@ -21,10 +21,17 @@ void StepSequencerComponent::setPad (int newPad)
 
 void StepSequencerComponent::refresh()
 {
-    const int current = nzProcessor.getPlayingStep();
+    const int newPattern = nzProcessor.getSelectedPattern();
+    const int newLength = nzProcessor.getPatternLength (newPattern);
 
-    if (current != playingStep)
+    // El indicador solo se muestra si suena el patrón que estamos viendo
+    // (mientras espera un cambio de patrón, suena el anterior).
+    const int current = nzProcessor.getPlayingPattern() == newPattern ? nzProcessor.getPlayingStep() : -1;
+
+    if (newPattern != pattern || newLength != length || current != playingStep)
     {
+        pattern = newPattern;
+        length = newLength;
         playingStep = current;
         repaint();
     }
@@ -45,17 +52,26 @@ StepLevel StepSequencerComponent::levelAfterClick (StepLevel current, const juce
 
 juce::Rectangle<float> StepSequencerComponent::stepBounds (int step) const
 {
-    auto area = getLocalBounds().withTrimmedLeft (labelWidth).reduced (0, 8).toFloat();
-    const float groupGap = 8.0f;   // separación cada 4 pasos, para leer los tiempos
-    const float stepWidth = (area.getWidth() - groupGap * 3.0f) / (float) NzDrumProcessor::numSteps;
-    const float x = area.getX() + (float) step * stepWidth + (float) (step / 4) * groupGap;
+    // Siempre 16 columnas, así un paso mide lo mismo con cualquier largo.
+    constexpr int columns = 16;
+    const int rows = length > columns ? 2 : 1;
+    const int row = step / columns;
+    const int column = step % columns;
 
-    return { x + 2.0f, area.getY(), stepWidth - 4.0f, area.getHeight() };
+    auto area = getLocalBounds().withTrimmedLeft (labelWidth).reduced (0, 6).toFloat();
+    const float groupGap = 8.0f;   // separación cada 4 pasos, para leer los tiempos
+    const float rowGap = 4.0f;
+    const float stepWidth = (area.getWidth() - groupGap * 3.0f) / (float) columns;
+    const float rowHeight = (area.getHeight() - rowGap * (float) (rows - 1)) / (float) rows;
+    const float x = area.getX() + (float) column * stepWidth + (float) (column / 4) * groupGap;
+    const float y = area.getY() + (float) row * (rowHeight + rowGap);
+
+    return { x + 2.0f, y, stepWidth - 4.0f, rowHeight };
 }
 
 int StepSequencerComponent::stepAt (juce::Point<float> position) const
 {
-    for (int step = 0; step < NzDrumProcessor::numSteps; ++step)
+    for (int step = 0; step < length; ++step)
         if (stepBounds (step).contains (position))
             return step;
 
@@ -70,10 +86,17 @@ void StepSequencerComponent::paint (juce::Graphics& g)
                 getLocalBounds().removeFromLeft (labelWidth).reduced (14, 0),
                 juce::Justification::centredLeft);
 
-    for (int step = 0; step < NzDrumProcessor::numSteps; ++step)
+    // Con 4 u 8 pasos, el resto de la fila queda apenas marcado.
+    for (int step = length; step < juce::jmin (16, NzDrumProcessor::maxSteps); ++step)
+    {
+        g.setColour (offColour.withAlpha (0.3f));
+        g.drawRoundedRectangle (stepBounds (step), 4.0f, 1.0f);
+    }
+
+    for (int step = 0; step < length; ++step)
     {
         const auto bounds = stepBounds (step);
-        const auto level = nzProcessor.getStep (pad, step);
+        const auto level = nzProcessor.getStep (pattern, pad, step);
 
         g.setColour (offColour);
         g.fillRoundedRectangle (bounds, 4.0f);
@@ -102,6 +125,6 @@ void StepSequencerComponent::mouseDown (const juce::MouseEvent& event)
     if (step < 0)
         return;
 
-    nzProcessor.setStep (pad, step, levelAfterClick (nzProcessor.getStep (pad, step), event.mods));
+    nzProcessor.setStep (pattern, pad, step, levelAfterClick (nzProcessor.getStep (pattern, pad, step), event.mods));
     repaint();
 }
