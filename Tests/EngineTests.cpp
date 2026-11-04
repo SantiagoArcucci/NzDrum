@@ -378,6 +378,16 @@ public:
             set (p, 0, "end", 1.0f);
         }
 
+        beginTest ("Inicio y fin al final del sample no leen fuera del archivo");
+        {
+            set (p, 0, "start", 1.0f);
+            set (p, 0, "end", 1.0f);
+            const auto out = hit (p, 0);
+            expectLessOrEqual (soundingLength (out), 2);
+            set (p, 0, "start", 0.0f);
+            set (p, 0, "end", 1.0f);
+        }
+
         beginTest ("Un decay corto baja el final del sonido");
         {
             set (p, 0, "decay", NzDrumProcessor::minDecaySeconds);
