@@ -690,7 +690,9 @@ private:
             {
                 for (int ch = 0; ch < 2; ++ch)
                 {
-                    if (std::abs (block.getSample (ch, i)) < 1.0e-9f)
+                    // Umbral y no cero exacto: con el pan al tope, el redondeo del
+                    // parámetro puede dejar el otro canal en ~1e-8 (pasa en Mac).
+                    if (std::abs (block.getSample (ch, i)) < 1.0e-4f)
                     {
                         ++silentFor[(size_t) ch];
                         continue;
