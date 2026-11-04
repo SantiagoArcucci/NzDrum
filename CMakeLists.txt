@@ -38,7 +38,8 @@ target_sources(NzDrum
         Source/PluginProcessor.cpp
         Source/PluginEditor.cpp
         Source/PadComponent.cpp
-        Source/StepSequencerComponent.cpp)
+        Source/StepSequencerComponent.cpp
+        Source/PadEditorComponent.cpp)
 
 target_compile_definitions(NzDrum
     PUBLIC
@@ -66,7 +67,8 @@ if(NZDRUM_BUILD_TESTS)
             Source/PluginProcessor.cpp
             Source/PluginEditor.cpp
             Source/PadComponent.cpp
-            Source/StepSequencerComponent.cpp)
+            Source/StepSequencerComponent.cpp
+            Source/PadEditorComponent.cpp)
 
     target_compile_definitions(NzDrumTests
         PRIVATE

@@ -9,10 +9,20 @@ namespace
 }
 
 PadComponent::PadComponent (NzDrumProcessor& processor, int padIndex)
-    : nzProcessor (processor), pad (padIndex)
+    : nzProcessor (processor), pad (padIndex),
+      muteAttachment (processor.getParameters(), NzDrumProcessor::paramId (padIndex, "mute"), muteButton),
+      soloAttachment (processor.getParameters(), NzDrumProcessor::paramId (padIndex, "solo"), soloButton)
 {
-    for (auto* button : { &previousButton, &loadButton, &nextButton })
+    for (auto* button : { &previousButton, &loadButton, &nextButton, &muteButton, &soloButton })
         addAndMakeVisible (button);
+
+    muteButton.setClickingTogglesState (true);
+    soloButton.setClickingTogglesState (true);
+    muteButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xffd9534f));
+    soloButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xffe6c229));
+    soloButton.setColour (juce::TextButton::textColourOnId, juce::Colours::black);
+    muteButton.setTooltip ("Mute: el pad no suena");
+    soloButton.setTooltip ("Solo: suenan solo los pads en solo");
 
     previousButton.setTooltip ("Archivo anterior de la carpeta");
     nextButton.setTooltip ("Archivo siguiente de la carpeta");
@@ -50,12 +60,23 @@ void PadComponent::refresh()
     previousButton.setEnabled (hasFile);
     nextButton.setEnabled (hasFile);
 
+    const bool nowAudible = nzProcessor.isPadAudible (pad);
+
+    if (nowAudible != audible)
+    {
+        audible = nowAudible;
+        needsRepaint = true;
+    }
+
     const auto count = nzProcessor.getTriggerCount (pad);
 
     if (count != lastTriggerCount)
     {
         lastTriggerCount = count;
-        flash = 1.0f;
+
+        // Un pad que no suena tampoco destella.
+        if (audible)
+            flash = 1.0f;
     }
 
     if (flash > 0.0f)
@@ -96,11 +117,24 @@ void PadComponent::paint (juce::Graphics& g)
         label = "Cargando...";
 
     g.drawFittedText (label, textArea.removeFromTop (40), juce::Justification::centredLeft, 2);
+
+    // Apagado por mute o solo: se oscurece, pero se sigue leyendo.
+    if (! audible)
+    {
+        g.setColour (juce::Colours::black.withAlpha (0.45f));
+        g.fillRoundedRectangle (bounds, 8.0f);
+    }
 }
 
 void PadComponent::resized()
 {
     auto area = getLocalBounds().reduced (10);
+
+    auto top = area.removeFromTop (20);
+    soloButton.setBounds (top.removeFromRight (22));
+    top.removeFromRight (4);
+    muteButton.setBounds (top.removeFromRight (22));
+
     auto row = area.removeFromBottom (24);
     const int width = row.getWidth() / 3;
 

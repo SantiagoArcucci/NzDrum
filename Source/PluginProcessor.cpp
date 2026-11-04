@@ -10,9 +10,84 @@ namespace
     constexpr double maxSampleSeconds = 30.0;
 }
 
-NzDrumProcessor::NzDrumProcessor()
-    : AudioProcessor (BusesProperties().withOutput ("Output", juce::AudioChannelSet::stereo(), true))
+juce::String NzDrumProcessor::paramId (int pad, const char* name)
 {
+    return "pad" + juce::String (pad + 1) + "_" + name;
+}
+
+juce::AudioProcessorValueTreeState::ParameterLayout NzDrumProcessor::createParameterLayout()
+{
+    juce::AudioProcessorValueTreeState::ParameterLayout layout;
+
+    // El 1 de ParameterID es la versión: si algún día cambia un parámetro,
+    // los hosts lo usan para no confundirlo con el anterior.
+    const auto id = [] (int pad, const char* name) { return juce::ParameterID { paramId (pad, name), 1 }; };
+    const auto label = [] (int pad, const char* name) { return juce::String::fromUTF8 ("Pad ") + juce::String (pad + 1) + " " + juce::String::fromUTF8 (name); };
+
+    using Float = juce::AudioParameterFloat;
+    using Attributes = juce::AudioParameterFloatAttributes;
+
+    for (int pad = 0; pad < numPads; ++pad)
+    {
+        layout.add (std::make_unique<Float> (id (pad, "level"), label (pad, "Volumen"),
+                                             juce::NormalisableRange<float> (minLevelDb, maxLevelDb, 0.1f, 2.0f), 0.0f,
+                                             Attributes().withLabel ("dB")
+                                                         .withStringFromValueFunction ([] (float v, int)
+                                                         {
+                                                             return v <= minLevelDb ? juce::String ("-inf") : juce::String (v, 1);
+                                                         })));
+
+        layout.add (std::make_unique<Float> (id (pad, "pan"), label (pad, "Pan"),
+                                             juce::NormalisableRange<float> (-1.0f, 1.0f, 0.01f), 0.0f,
+                                             Attributes().withStringFromValueFunction ([] (float v, int)
+                                             {
+                                                 if (std::abs (v) < 0.005f) return juce::String ("C");
+                                                 return juce::String (juce::roundToInt (std::abs (v) * 100.0f)) + (v < 0.0f ? " L" : " R");
+                                             })));
+
+        layout.add (std::make_unique<Float> (id (pad, "pitch"), label (pad, "Pitch"),
+                                             juce::NormalisableRange<float> (-maxPitchSemitones, maxPitchSemitones, 0.01f), 0.0f,
+                                             Attributes().withLabel ("st")));
+
+        // Skew < 1: más resolución en los decays cortos, que es donde se nota.
+        layout.add (std::make_unique<Float> (id (pad, "decay"), label (pad, "Decay"),
+                                             juce::NormalisableRange<float> (minDecaySeconds, maxDecaySeconds, 0.001f, 0.35f), maxDecaySeconds,
+                                             Attributes().withLabel ("s")
+                                                         .withStringFromValueFunction ([] (float v, int)
+                                                         {
+                                                             return v >= maxDecaySeconds ? juce::String ("off") : juce::String (v, 2);
+                                                         })));
+
+        layout.add (std::make_unique<Float> (id (pad, "start"), label (pad, "Inicio"),
+                                             juce::NormalisableRange<float> (0.0f, 1.0f, 0.0001f), 0.0f));
+
+        layout.add (std::make_unique<Float> (id (pad, "end"), label (pad, "Fin"),
+                                             juce::NormalisableRange<float> (0.0f, 1.0f, 0.0001f), 1.0f));
+
+        layout.add (std::make_unique<juce::AudioParameterBool> (id (pad, "mute"), label (pad, "Mute"), false));
+        layout.add (std::make_unique<juce::AudioParameterBool> (id (pad, "solo"), label (pad, "Solo"), false));
+    }
+
+    return layout;
+}
+
+NzDrumProcessor::NzDrumProcessor()
+    : AudioProcessor (BusesProperties().withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
+      parameters (*this, nullptr, "NzDrum", createParameterLayout())
+{
+    for (int pad = 0; pad < numPads; ++pad)
+    {
+        auto& p = padParameters[(size_t) pad];
+        p.level = parameters.getRawParameterValue (paramId (pad, "level"));
+        p.pan = parameters.getRawParameterValue (paramId (pad, "pan"));
+        p.pitch = parameters.getRawParameterValue (paramId (pad, "pitch"));
+        p.decay = parameters.getRawParameterValue (paramId (pad, "decay"));
+        p.start = parameters.getRawParameterValue (paramId (pad, "start"));
+        p.end = parameters.getRawParameterValue (paramId (pad, "end"));
+        p.mute = parameters.getRawParameterValue (paramId (pad, "mute"));
+        p.solo = parameters.getRawParameterValue (paramId (pad, "solo"));
+    }
+
     formats.registerBasicFormats();   // WAV, AIFF, FLAC, Ogg y, en Mac, MP3/M4A vía CoreAudio
     startTimerHz (10);                // recolector de samples descartados
 }
@@ -119,6 +194,10 @@ void NzDrumProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
         events[(size_t) (j + 1)] = event;
     }
 
+    // Mute y solo se leen una vez por bloque; el cambio se suaviza en renderVoices.
+    for (int pad = 0; pad < numPads; ++pad)
+        blockAudible[(size_t) pad] = isPadAudible (pad);
+
     // 3. Renderizamos hasta cada disparo, disparamos y seguimos.
     int cursor = 0;
 
@@ -187,13 +266,48 @@ void NzDrumProcessor::startVoice (int pad, const LoadedSample* sample, float vel
 {
     triggerCounts[(size_t) pad].fetch_add (1, std::memory_order_relaxed);
 
-    if (sample == nullptr || sample->audio.getNumSamples() == 0)
+    if (sample == nullptr || sample->audio.getNumSamples() < 2)
         return;
 
+    // Los parámetros se leen una vez por disparo: mover una perilla afecta
+    // al próximo golpe, no al que ya está sonando.
+    const auto& params = padParameters[(size_t) pad];
+    const auto lastIndex = (double) (sample->audio.getNumSamples() - 1);
+
+    float start = params.start->load (std::memory_order_relaxed);
+    float end = params.end->load (std::memory_order_relaxed);
+
+    if (end < start)
+        std::swap (start, end);
+
     auto& voice = voices[(size_t) pad];
-    voice.position = 0.0;
-    voice.increment = sample->sampleRate / currentSampleRate;
-    voice.gain = velocity;
+
+    // Si no venía sonando nada, el pad arranca directo en su estado de mute:
+    // no hay nada que suavizar y así el ataque queda intacto.
+    if (! voice.playing)
+        audibleGains[(size_t) pad] = blockAudible[(size_t) pad] ? 1.0f : 0.0f;
+
+    voice.position = start * lastIndex;
+    voice.endPosition = juce::jlimit (voice.position + 1.0, lastIndex, end * lastIndex);
+
+    const float pitch = params.pitch->load (std::memory_order_relaxed);
+    voice.increment = (sample->sampleRate / currentSampleRate) * std::exp2 (pitch / 12.0);
+
+    const float levelDb = params.level->load (std::memory_order_relaxed);
+    const float gain = velocity * (levelDb <= minLevelDb ? 0.0f : juce::Decibels::decibelsToGain (levelDb));
+
+    // Pan tipo "balance": al centro los dos canales quedan como estaban, y
+    // hacia un lado se va bajando el otro.
+    const float pan = params.pan->load (std::memory_order_relaxed);
+    voice.gainLeft = gain * juce::jmin (1.0f, 1.0f - pan);
+    voice.gainRight = gain * juce::jmin (1.0f, 1.0f + pan);
+
+    const float decay = params.decay->load (std::memory_order_relaxed);
+    voice.envelope = 1.0f;
+    voice.envelopeCoefficient = decay >= maxDecaySeconds
+                                    ? 1.0f
+                                    : (float) std::exp (-1.0 / (decay * currentSampleRate));
+
     voice.playing = true;
 }
 
@@ -204,31 +318,53 @@ void NzDrumProcessor::renderVoices (juce::AudioBuffer<float>& buffer, int startS
 
     const int numOutputChannels = buffer.getNumChannels();
 
+    // Un fundido de 2 ms al llegar al fin evita el "click" de cortar la onda
+    // en un punto que no es cero, algo común al recortar con el marcador.
+    const double fadeOutputSamples = 0.002 * currentSampleRate;
+    constexpr float silence = 1.0e-4f;
+
+    // Mute y solo bajan o suben el volumen del pad en 5 ms, como el fader de
+    // una consola: cortar en seco haría un click.
+    const float muteStep = (float) (1.0 / (0.005 * currentSampleRate));
+
     for (int pad = 0; pad < numPads; ++pad)
     {
         auto& voice = voices[(size_t) pad];
         const auto* sample = blockSamples[(size_t) pad];
 
+        auto& audibleGain = audibleGains[(size_t) pad];
+        const float audibleTarget = blockAudible[(size_t) pad] ? 1.0f : 0.0f;
+
         if (! voice.playing || sample == nullptr)
+        {
+            audibleGain = audibleTarget;   // sin voz no hay nada que suavizar
             continue;
+        }
 
         const auto& source = sample->audio;
-        const int sourceLength = source.getNumSamples();
         const int sourceChannels = source.getNumChannels();
 
         for (int i = startSample; i < endSample; ++i)
         {
             const int index = (int) voice.position;
 
-            if (index + 1 >= sourceLength)
+            if (voice.position >= voice.endPosition || voice.envelope < silence)
             {
                 voice.playing = false;
                 break;
             }
 
-            // Interpolación lineal entre dos muestras: alcanza para corregir
-            // diferencias de sample rate (44,1 vs 48 kHz) en esta etapa.
+            // Interpolación lineal entre dos muestras: corrige diferencias de
+            // sample rate y permite el pitch.
             const float fraction = (float) (voice.position - index);
+            const double remaining = (voice.endPosition - voice.position) / voice.increment;
+            const float fade = (float) juce::jmin (1.0, remaining / fadeOutputSamples);
+            if (audibleGain < audibleTarget)
+                audibleGain = juce::jmin (audibleTarget, audibleGain + muteStep);
+            else if (audibleGain > audibleTarget)
+                audibleGain = juce::jmax (audibleTarget, audibleGain - muteStep);
+
+            const float amplitude = voice.envelope * fade * audibleGain;
 
             for (int channel = 0; channel < numOutputChannels; ++channel)
             {
@@ -236,10 +372,15 @@ void NzDrumProcessor::renderVoices (juce::AudioBuffer<float>& buffer, int startS
                 const int sourceChannel = juce::jmin (channel, sourceChannels - 1);
                 const float a = source.getSample (sourceChannel, index);
                 const float b = source.getSample (sourceChannel, index + 1);
-                buffer.addSample (channel, i, (a + fraction * (b - a)) * voice.gain);
+
+                const float channelGain = numOutputChannels == 1 ? 0.5f * (voice.gainLeft + voice.gainRight)
+                                                                 : (channel == 0 ? voice.gainLeft : voice.gainRight);
+
+                buffer.addSample (channel, i, (a + fraction * (b - a)) * channelGain * amplitude);
             }
 
             voice.position += voice.increment;
+            voice.envelope *= voice.envelopeCoefficient;
         }
     }
 }
@@ -359,6 +500,25 @@ juce::Array<juce::File> NzDrumProcessor::listAudioFilesNextTo (const juce::File&
     return files;
 }
 
+bool NzDrumProcessor::isPadAudible (int pad) const noexcept
+{
+    if (! juce::isPositiveAndBelow (pad, numPads))
+        return false;
+
+    bool anySolo = false;
+
+    for (const auto& p : padParameters)
+        anySolo = anySolo || p.solo->load (std::memory_order_relaxed) >= 0.5f;
+
+    const auto& params = padParameters[(size_t) pad];
+
+    // Un pad muteado no suena aunque esté en solo.
+    if (params.mute->load (std::memory_order_relaxed) >= 0.5f)
+        return false;
+
+    return ! anySolo || params.solo->load (std::memory_order_relaxed) >= 0.5f;
+}
+
 void NzDrumProcessor::setStep (int pad, int step, StepLevel level) noexcept
 {
     if (pad >= 0 && pad < numPads && step >= 0 && step < numSteps)
@@ -424,10 +584,16 @@ double NzDrumProcessor::getTailLengthSeconds() const
 {
     // Una nota puede seguir sonando hasta que termina su sample. El host usa
     // este valor para no cortar el final al exportar o congelar una pista.
+    // Con el pitch hacia abajo el sample dura más, así que lo tenemos en cuenta.
     double longest = 0.0;
 
-    for (const auto& seconds : sampleSeconds)
-        longest = juce::jmax (longest, seconds.load());
+    for (int pad = 0; pad < numPads; ++pad)
+    {
+        const auto& params = padParameters[(size_t) pad];
+        const double region = std::abs (params.end->load() - params.start->load());
+        const double speed = std::exp2 (params.pitch->load() / 12.0);
+        longest = juce::jmax (longest, sampleSeconds[(size_t) pad].load() * region / speed);
+    }
 
     return longest;
 }

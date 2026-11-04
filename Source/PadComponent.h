@@ -4,7 +4,7 @@
 
 // Un pad de la grilla: muestra el archivo cargado, suena con un click y acepta
 // archivos arrastrados. Los botones de abajo cargan un archivo o recorren la
-// carpeta del sample actual.
+// carpeta del sample actual. Arriba a la derecha están mute (M) y solo (S).
 class PadComponent final : public juce::Component,
                            public juce::FileDragAndDropTarget
 {
@@ -37,10 +37,17 @@ private:
     juce::TextButton previousButton { "<" }, loadButton { "..." }, nextButton { ">" };
     std::unique_ptr<juce::FileChooser> chooser;
 
+    // Mute y solo son parámetros del host: los attachments mantienen el botón
+    // y el parámetro sincronizados en los dos sentidos (incluida la
+    // automatización).
+    juce::TextButton muteButton { "M" }, soloButton { "S" };
+    juce::AudioProcessorValueTreeState::ButtonAttachment muteAttachment, soloAttachment;
+
     juce::String fileName;
     bool loading = false;
     bool dragHover = false;
     bool selected = false;
+    bool audible = true;
     uint32_t lastTriggerCount = 0;
     float flash = 0.0f;   // 1 al disparar, se apaga de a poco
 

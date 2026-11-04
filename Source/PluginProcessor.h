@@ -17,6 +17,8 @@ enum class StepLevel : uint8_t { off = 0, low, normal, accent };
 //     carpeta.
 //   - Un secuenciador de 16 pasos por pad, con tres niveles (bajo, normal y
 //     acento), sigue el play y el tempo del host con precisión de muestra.
+//   - Cada pad tiene volumen, pan, pitch, decay, inicio, fin, mute y solo como parámetros
+//     del host: se pueden automatizar en el DAW.
 class NzDrumProcessor final : public juce::AudioProcessor,
                               private juce::Timer
 {
@@ -25,6 +27,16 @@ public:
     static constexpr int firstMidiNote = 36;   // C1 en Studio Pro
     static constexpr int numSteps = 16;        // semicorcheas; el largo variable llega en la etapa 4
     static constexpr double stepLengthPpq = 0.25;
+
+    // Rangos de los parámetros por pad.
+    static constexpr float minLevelDb = -48.0f;    // el mínimo equivale a silencio
+    static constexpr float maxLevelDb = 6.0f;
+    static constexpr float maxPitchSemitones = 24.0f;
+    static constexpr float minDecaySeconds = 0.02f;
+    static constexpr float maxDecaySeconds = 5.0f; // el máximo equivale a "sin decay"
+
+    // IDs de los parámetros de un pad, por ejemplo "pad3_level".
+    static juce::String paramId (int pad, const char* name);
 
     NzDrumProcessor();
     ~NzDrumProcessor() override;
@@ -80,8 +92,20 @@ public:
     // Paso que está sonando ahora, o -1 si el host está detenido.
     int getPlayingStep() const noexcept;
 
+    // Si el pad se escucha según mute y solo: si hay algún pad en solo, solo
+    // suenan esos; un pad muteado nunca suena. Se puede llamar desde
+    // cualquier hilo.
+    bool isPadAudible (int pad) const noexcept;
+
     // Cuánto suena cada nivel. Por ahora fijo; editable por pad más adelante.
     static float gainFor (StepLevel level) noexcept;
+
+    // Parámetros del host (volumen, pan, etc. de cada pad). La UI se conecta
+    // con attachments; el audio los lee con punteros atómicos.
+    juce::AudioProcessorValueTreeState& getParameters() noexcept { return parameters; }
+
+    // Para que la UI dibuje la forma de onda con los mismos formatos.
+    juce::AudioFormatManager& getFormatManager() noexcept { return formats; }
 
     struct TransportSnapshot
     {
@@ -98,10 +122,30 @@ private:
     struct PadVoice
     {
         double position = 0.0;
-        double increment = 1.0;   // relación entre el sample rate del archivo y el del host
-        float gain = 0.0f;
+        double endPosition = 0.0; // dónde termina, según el parámetro de fin
+        double increment = 1.0;   // sample rate del archivo / del host, por el pitch
+        float gainLeft = 0.0f;    // velocity, volumen y pan ya combinados
+        float gainRight = 0.0f;
+        float envelope = 1.0f;    // decay: baja de a poco desde 1
+        float envelopeCoefficient = 1.0f;
         bool playing = false;
     };
+
+    // Punteros a los valores crudos de los parámetros de un pad. Son
+    // std::atomic<float>, así que el audio los lee sin locks.
+    struct PadParameters
+    {
+        std::atomic<float>* level = nullptr;
+        std::atomic<float>* pan = nullptr;
+        std::atomic<float>* pitch = nullptr;
+        std::atomic<float>* decay = nullptr;
+        std::atomic<float>* start = nullptr;
+        std::atomic<float>* end = nullptr;
+        std::atomic<float>* mute = nullptr;
+        std::atomic<float>* solo = nullptr;
+    };
+
+    static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
     // Un disparo dentro del bloque actual, venga del secuenciador o del MIDI.
     struct TriggerEvent
@@ -124,6 +168,9 @@ private:
     // leen, así que se pueden usar desde el hilo de carga.
     juce::AudioFormatManager formats;
 
+    juce::AudioProcessorValueTreeState parameters;
+    std::array<PadParameters, numPads> padParameters;
+
     std::array<SampleSlot, numPads> slots;
 
     // Lo que la UI muestra de cada pad. Lo comparten la UI y el hilo de carga
@@ -140,6 +187,8 @@ private:
     double currentSampleRate = 44100.0;
     std::array<PadVoice, numPads> voices;
     std::array<const LoadedSample*, numPads> blockSamples {};
+    std::array<bool, numPads> blockAudible {};
+    std::array<float, numPads> audibleGains {};   // 0..1, sigue a blockAudible de a poco
 
     // Lista de disparos del bloque, de tamaño fijo para no reservar memoria
     // en el hilo de audio.

@@ -2,13 +2,16 @@
 
 Drum machine VST3 de 16 pads con secuenciador por pasos y tres niveles de dinámica por paso (bajo, normal y acento). Hecha en C++ con [JUCE](https://juce.com).
 
-> Estado: **etapa 3**. Sampler de 16 pads con secuenciador de 16 pasos y tres niveles por paso, sincronizado con el host. Todavía no hay swing, largo de patrón variable ni banco de patrones (etapa 4), y nada se guarda con la sesión (etapa 6).
+> Estado: **ajustes por pad**. Sampler de 16 pads con secuenciador de 16 pasos y tres niveles por paso, sincronizado con el host, y por pad: volumen, pan, pitch, decay, inicio y fin del sample, mute y solo. Todavía no hay swing, largo de patrón variable ni banco de patrones (etapa 4), y nada se guarda con la sesión (etapa 6).
 
 ## Cómo se usa
 
 - **Cargar un sample:** arrastrá un archivo de audio (WAV, AIFF, FLAC, Ogg o MP3) sobre un pad, o usá el botón `...`.
 - **Recorrer la carpeta:** con `<` y `>` pasás al archivo anterior o siguiente de la misma carpeta, en el mismo orden que Finder. Al llegar al final vuelve al principio.
 - **Secuenciar:** tocar un pad lo selecciona, y abajo aparece la fila de 16 pasos de ese pad. Click pone un paso en nivel normal, Shift-click en acento y Option-click en bajo; repetir el mismo click lo apaga. El secuenciador sigue el play y el tempo del DAW.
+- **Ajustar el pad seleccionado:** abajo de todo está la forma de onda del sample, con dos marcadores naranjas que se arrastran: dónde empieza y dónde termina. Al lado, perillas de volumen, pan, pitch (±24 semitonos) y decay (`off` = suena entero). El inicio y el fin se guardan como proporción del archivo, así que se mantienen al pasar a otro sample con `<` y `>`. Doble click en una perilla la vuelve a su valor inicial.
+- **Mute y solo:** cada pad tiene botones `M` y `S`. Un pad muteado no suena por ningún lado, ni con el secuenciador, ni por MIDI, ni con click. Si hay pads en solo, suenan solo esos (salvo que además estén muteados). El cambio se suaviza en 5 ms para que no haga click.
+- **Automatizar:** todos los ajustes por pad (incluidos mute y solo) son parámetros del host, así que se pueden automatizar en Studio Pro.
 - **Tocar:** click en el pad, o notas MIDI. El pad 1 es la nota 36 (C1 en Studio Pro) y el 16 es la 51 (D#2). La grilla sigue la disposición de una MPC: el pad 1 abajo a la izquierda.
 
 ## Requisitos (macOS)
