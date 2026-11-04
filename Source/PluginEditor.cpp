@@ -5,6 +5,7 @@ namespace
     constexpr int headerHeight = 64;
     constexpr int gridColumns = 4;
     constexpr int sequencerHeight = 72;
+    constexpr int padEditorHeight = 150;
 }
 
 NzDrumEditor::NzDrumEditor (NzDrumProcessor& p)
@@ -18,9 +19,10 @@ NzDrumEditor::NzDrumEditor (NzDrumProcessor& p)
     }
 
     addAndMakeVisible (sequencer);
+    addAndMakeVisible (padEditor);
     selectPad (0);
 
-    setSize (640, 680);
+    setSize (720, 840);
     startTimerHz (30);
 }
 
@@ -49,6 +51,7 @@ void NzDrumEditor::paint (juce::Graphics& g)
 void NzDrumEditor::resized()
 {
     auto area = getLocalBounds().withTrimmedTop (headerHeight);
+    padEditor.setBounds (area.removeFromBottom (padEditorHeight).reduced (14, 8));
     sequencer.setBounds (area.removeFromBottom (sequencerHeight).reduced (14, 4));
     auto grid = area.reduced (14, 0);
 
@@ -75,6 +78,7 @@ void NzDrumEditor::timerCallback()
         pad->refresh();
 
     sequencer.refresh();
+    padEditor.refresh();
 
     // El encabezado muestra el transporte, que cambia todo el tiempo.
     repaint (getLocalBounds().removeFromTop (headerHeight));
@@ -86,4 +90,5 @@ void NzDrumEditor::selectPad (int pad)
         pads[(size_t) i]->setSelected (i == pad);
 
     sequencer.setPad (pad);
+    padEditor.setPad (pad);
 }

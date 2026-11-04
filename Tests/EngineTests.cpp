@@ -308,6 +308,187 @@ public:
 
 static EngineTests engineTests;
 
+// Ajustes por pad: volumen, pan, pitch, inicio/fin, decay, mute y solo.
+class PadSettingsTests final : public juce::UnitTest
+{
+public:
+    PadSettingsTests() : juce::UnitTest ("Ajustes por pad", "NzDrum") {}
+
+    void runTest() override
+    {
+        auto folder = juce::File::createTempFile ("nzdrum-settings");
+        folder.createDirectory();
+        const auto tone = writeTestWav (folder, "tono.wav", 4000);
+
+        NzDrumProcessor p;
+        p.setPlayConfigDetails (0, 2, testSampleRate, blockSize);
+        p.prepareToPlay (testSampleRate, blockSize);
+
+        for (int pad : { 0, 1 })
+        {
+            p.loadSample (pad, tone);
+            expect (waitUntilLoaded (p, pad), "la carga no termino");
+        }
+
+        // Lo de base, sin tocar nada.
+        const auto reference = hit (p, 0);
+        const float referencePeak = peak (reference, 0, reference.getNumSamples());
+        const int referenceLength = soundingLength (reference);
+
+        beginTest ("Volumen: -6 dB da la mitad de amplitud");
+        {
+            set (p, 0, "level", -6.0f);
+            const auto out = hit (p, 0);
+            expectWithinAbsoluteError (peak (out, 0, out.getNumSamples()) / referencePeak, 0.501f, 0.01f);
+            set (p, 0, "level", 0.0f);
+        }
+
+        beginTest ("Volumen al minimo es silencio");
+        {
+            set (p, 0, "level", NzDrumProcessor::minLevelDb);
+            const auto out = hit (p, 0);
+            expectEquals (peak (out, 0, out.getNumSamples()), 0.0f);
+            set (p, 0, "level", 0.0f);
+        }
+
+        beginTest ("Pan a la izquierda apaga el canal derecho");
+        {
+            set (p, 0, "pan", -1.0f);
+            const auto out = hit (p, 0);
+            expectWithinAbsoluteError (out.getMagnitude (0, 0, out.getNumSamples()), referencePeak, 1.0e-3f);
+            expectEquals (out.getMagnitude (1, 0, out.getNumSamples()), 0.0f);
+            set (p, 0, "pan", 0.0f);
+        }
+
+        beginTest ("Pitch +12 suena una octava arriba: dura la mitad");
+        {
+            set (p, 0, "pitch", 12.0f);
+            const int length = soundingLength (hit (p, 0));
+            expectWithinAbsoluteError (length, referenceLength / 2, 4);
+            set (p, 0, "pitch", 0.0f);
+        }
+
+        beginTest ("Inicio y fin recortan el sample, aunque esten invertidos");
+        {
+            set (p, 0, "start", 0.5f);
+            set (p, 0, "end", 0.25f);
+            const int length = soundingLength (hit (p, 0));
+            expectWithinAbsoluteError (length, referenceLength / 4, 4);
+            set (p, 0, "start", 0.0f);
+            set (p, 0, "end", 1.0f);
+        }
+
+        beginTest ("Un decay corto baja el final del sonido");
+        {
+            set (p, 0, "decay", NzDrumProcessor::minDecaySeconds);
+            const auto out = hit (p, 0);
+            // 0,02 s de decay: a las 2000 muestras (42 ms) queda cerca de e^-2.
+            expectLessThan (peak (out, 2000, 3000), 0.2f * peak (reference, 2000, 3000));
+            set (p, 0, "decay", NzDrumProcessor::maxDecaySeconds);
+        }
+
+        beginTest ("Un pad muteado no suena, ni por MIDI ni por click");
+        {
+            set (p, 0, "mute", 1.0f);
+            expect (! p.isPadAudible (0));
+            const auto midiHit = hit (p, 0);
+            expectEquals (peak (midiHit, 0, midiHit.getNumSamples()), 0.0f, "sono por MIDI");
+
+            p.triggerFromUi (0, 1.0f);
+            const auto clickHit = render (p, {}, 4800);
+            expectEquals (peak (clickHit, 0, clickHit.getNumSamples()), 0.0f, "sono por click");
+            set (p, 0, "mute", 0.0f);
+        }
+
+        beginTest ("Mutear mientras suena baja el sonido de a poco, sin cortarlo en seco");
+        {
+            juce::MidiBuffer midi;
+            midi.addEvent (juce::MidiMessage::noteOn (1, NzDrumProcessor::firstMidiNote, 1.0f), 0);
+            runBlock (p, midi);
+            set (p, 0, "mute", 1.0f);
+
+            const auto out = runBlock (p);
+            const int fadeSamples = (int) (0.005 * testSampleRate);
+            expectGreaterThan (peak (out, 0, 40), 0.05f, "corto en seco");
+            expectEquals (peak (out, fadeSamples + 1, blockSize), 0.0f, "no termino de bajar");
+
+            set (p, 0, "mute", 0.0f);
+            render (p, {}, 4800);
+        }
+
+        beginTest ("Con un pad en solo, los demas no suenan");
+        {
+            set (p, 1, "solo", 1.0f);
+            expect (p.isPadAudible (1));
+            expect (! p.isPadAudible (0));
+
+            const auto other = hit (p, 0);
+            expectEquals (peak (other, 0, other.getNumSamples()), 0.0f, "sono un pad fuera del solo");
+
+            const auto soloed = hit (p, 1);
+            expectWithinAbsoluteError (peak (soloed, 0, soloed.getNumSamples()), referencePeak, 1.0e-3f);
+        }
+
+        beginTest ("Un pad muteado no suena aunque este en solo");
+        {
+            set (p, 1, "mute", 1.0f);
+            const auto out = hit (p, 1);
+            expectEquals (peak (out, 0, out.getNumSamples()), 0.0f);
+            set (p, 1, "mute", 0.0f);
+            set (p, 1, "solo", 0.0f);
+            expect (p.isPadAudible (0));
+        }
+
+        folder.deleteRecursively();
+    }
+
+private:
+    static void set (NzDrumProcessor& p, int pad, const char* name, float value)
+    {
+        auto* param = p.getParameters().getParameter (NzDrumProcessor::paramId (pad, name));
+        jassert (param != nullptr);
+        param->setValueNotifyingHost (param->convertTo0to1 (value));
+    }
+
+    // Procesa varios bloques seguidos y los junta en un solo buffer.
+    static juce::AudioBuffer<float> render (NzDrumProcessor& p, juce::MidiBuffer firstBlockMidi, int numSamples)
+    {
+        juce::AudioBuffer<float> result (2, numSamples);
+        result.clear();
+
+        for (int start = 0; start < numSamples; start += blockSize)
+        {
+            auto block = runBlock (p, start == 0 ? firstBlockMidi : juce::MidiBuffer {});
+            const int count = juce::jmin (blockSize, numSamples - start);
+
+            for (int ch = 0; ch < 2; ++ch)
+                result.copyFrom (ch, start, block, ch, 0, count);
+        }
+
+        return result;
+    }
+
+    // Dispara el pad por MIDI al principio y devuelve 100 ms de audio.
+    static juce::AudioBuffer<float> hit (NzDrumProcessor& p, int pad)
+    {
+        juce::MidiBuffer midi;
+        midi.addEvent (juce::MidiMessage::noteOn (1, NzDrumProcessor::firstMidiNote + pad, 1.0f), 0);
+        return render (p, midi, 4800);
+    }
+
+    // Hasta qué muestra hay sonido.
+    static int soundingLength (const juce::AudioBuffer<float>& b)
+    {
+        for (int i = b.getNumSamples(); --i >= 0;)
+            if (std::abs (b.getSample (0, i)) > 0.0f || std::abs (b.getSample (1, i)) > 0.0f)
+                return i + 1;
+
+        return 0;
+    }
+};
+
+static PadSettingsTests padSettingsTests;
+
 int main()
 {
     juce::ScopedJuceInitialiser_GUI juceInit;
