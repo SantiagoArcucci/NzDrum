@@ -2,7 +2,7 @@
 
 Drum machine VST3 de 16 pads con secuenciador por pasos y tres niveles de dinámica por paso (bajo, normal y acento). Hecha en C++ con [JUCE](https://juce.com).
 
-> Estado: **etapa 5**. Sampler de 16 pads con un banco de 16 patrones de 4, 8, 16 o 32 pasos, tres niveles por paso y swing global, sincronizado con el host. Por pad: volumen, pan, pitch, decay, inicio y fin del sample, mute y solo. Los patrones se encadenan automatizando el parámetro "Patrón" en el DAW. Todavía nada se guarda con la sesión (etapa 6).
+> Estado: **etapa 6**. Sampler de 16 pads con un banco de 16 patrones de 4, 8, 16 o 32 pasos, tres niveles por paso y swing global, sincronizado con el host. Por pad: volumen, pan, pitch, decay, inicio y fin del sample, mute y solo. Los patrones se encadenan automatizando el parámetro "Patrón" en el DAW, y todo se guarda con la sesión.
 
 ## Cómo se usa
 
@@ -18,6 +18,7 @@ Drum machine VST3 de 16 pads con secuenciador por pasos y tres niveles de dinám
 - **Ajustar el pad seleccionado:** abajo de todo está la forma de onda del sample, con dos marcadores naranjas que se arrastran: dónde empieza y dónde termina. Al lado, perillas de volumen, pan, pitch (±24 semitonos) y decay (`off` = suena entero). El inicio y el fin se guardan como proporción del archivo, así que se mantienen al pasar a otro sample con `<` y `>`. Doble click en una perilla la vuelve a su valor inicial.
 - **Mute y solo:** cada pad tiene botones `M` y `S`. Un pad muteado no suena por ningún lado, ni con el secuenciador, ni por MIDI, ni con click. Si hay pads en solo, suenan solo esos (salvo que además estén muteados). El cambio se suaviza en 5 ms para que no haga click.
 - **Automatizar:** todos los ajustes por pad (incluidos mute y solo) son parámetros del host, así que se pueden automatizar en Studio Pro.
+- **Guardar:** al guardar la sesión de Studio Pro se guardan los 16 patrones con sus largos, el swing, el patrón elegido, los ajustes de cada pad y la **ruta** del sample de cada pad (el audio no se copia adentro de la sesión). Si al abrir la sesión un archivo ya no está, el pad muestra "Falta: nombre" en rojo y queda mudo; con `...`, `<` o `>` lo volvés a cargar. El portapapeles no se guarda.
 - **Tocar:** click en el pad, o notas MIDI. El pad 1 es la nota 36 (C1 en Studio Pro) y el 16 es la 51 (D#2). La grilla sigue la disposición de una MPC: el pad 1 abajo a la izquierda.
 
 ## Requisitos (macOS)

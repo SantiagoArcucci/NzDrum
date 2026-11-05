@@ -842,3 +842,135 @@ private:
 };
 
 static PatternTests patternTests;
+
+// Guardar y cargar el estado, como hace el DAW al guardar y abrir la sesión.
+class StateTests final : public juce::UnitTest
+{
+public:
+    StateTests() : juce::UnitTest ("Estado de la sesion", "NzDrum") {}
+
+    void runTest() override
+    {
+        auto folder = juce::File::createTempFile ("nzdrum-state");
+        folder.createDirectory();
+        const auto kick = writeTestWav (folder, "kick.wav", 4000);
+        const auto snare = writeTestWav (folder, "snare.wav", 4000);
+        const auto other = writeTestWav (folder, "otro.wav", 4000);
+
+        juce::MemoryBlock saved;
+
+        {
+            NzDrumProcessor p;
+            prepare (p);
+            p.loadSample (0, kick);
+            p.loadSample (3, snare);
+            expect (waitUntilLoaded (p, 0) && waitUntilLoaded (p, 3));
+
+            p.setStep (0, 0, 0, StepLevel::accent);
+            p.setStep (5, 15, 31, StepLevel::low);
+            p.setPatternLength (5, 32);
+            p.setPatternLength (2, 4);
+            setParameter (p, "swing", 62.0f);
+            setParameter (p, "pattern", 3.0f);
+            setParameter (p, NzDrumProcessor::paramId (0, "level"), -6.0f);
+            setParameter (p, NzDrumProcessor::paramId (3, "mute"), 1.0f);
+
+            p.getStateInformation (saved);
+        }
+
+        beginTest ("Una instancia nueva recupera patrones, largos, parametros y samples");
+        {
+            NzDrumProcessor p;
+            prepare (p);
+            p.setStateInformation (saved.getData(), (int) saved.getSize());
+            expect (waitUntilLoaded (p, 0) && waitUntilLoaded (p, 3));
+
+            expect (p.getStep (0, 0, 0) == StepLevel::accent);
+            expect (p.getStep (5, 15, 31) == StepLevel::low);
+            expect (p.getStep (0, 0, 1) == StepLevel::off);
+            expectEquals (p.getPatternLength (5), 32);
+            expectEquals (p.getPatternLength (2), 4);
+            expectEquals (p.getPatternLength (0), 16);
+            expectWithinAbsoluteError (value (p, "swing"), 62.0f, 0.01f);
+            expectEquals (p.getSelectedPattern(), 2);
+            expectWithinAbsoluteError (value (p, NzDrumProcessor::paramId (0, "level")), -6.0f, 0.01f);
+            expectEquals (value (p, NzDrumProcessor::paramId (3, "mute")), 1.0f);
+
+            expect (p.getPadFile (0) == kick);
+            expect (p.getPadFile (3) == snare);
+            expect (p.getPadFile (1) == juce::File());
+            expect (! p.isPadMissing (0));
+
+            juce::MidiBuffer midi;
+            midi.addEvent (juce::MidiMessage::noteOn (1, NzDrumProcessor::firstMidiNote, 1.0f), 0);
+            expectGreaterThan (peak (runBlock (p, midi), 0, blockSize), 0.1f, "el pad 1 no suena");
+        }
+
+        beginTest ("Si falta un archivo, el pad queda mudo y marcado como faltante");
+        {
+            snare.moveFileTo (folder.getChildFile ("movido.wav"));
+
+            NzDrumProcessor p;
+            prepare (p);
+            p.setStateInformation (saved.getData(), (int) saved.getSize());
+            expect (waitUntilLoaded (p, 0) && waitUntilLoaded (p, 3));
+
+            expect (p.isPadMissing (3));
+            expectEquals (p.getPadFile (3).getFileName(), juce::String ("snare.wav"));
+            expect (! p.isPadMissing (0));
+            setParameter (p, NzDrumProcessor::paramId (3, "mute"), 0.0f);
+
+            juce::MidiBuffer midi;
+            midi.addEvent (juce::MidiMessage::noteOn (1, NzDrumProcessor::firstMidiNote + 3, 1.0f), 0);
+            runBlock (p);   // el audio toma el pad vacío
+            expectEquals (peak (runBlock (p, midi), 0, blockSize), 0.0f);
+
+            // Cargar otro archivo saca la marca.
+            p.loadSample (3, other);
+            expect (waitUntilLoaded (p, 3));
+            expect (! p.isPadMissing (3));
+        }
+
+        beginTest ("Cargar un estado sobre una instancia con samples vacia los pads que no estaban");
+        {
+            NzDrumProcessor p;
+            prepare (p);
+            p.loadSample (7, other);
+            p.setStep (9, 7, 2, StepLevel::normal);
+            expect (waitUntilLoaded (p, 7));
+
+            p.setStateInformation (saved.getData(), (int) saved.getSize());
+            expect (waitUntilLoaded (p, 7));
+            expect (p.getPadFile (7) == juce::File());
+            expect (! p.isPadMissing (7));
+            expect (p.getStep (9, 7, 2) == StepLevel::off);
+        }
+
+        beginTest ("Datos basura no rompen nada ni cambian el estado");
+        {
+            NzDrumProcessor p;
+            prepare (p);
+            p.setStep (1, 1, 1, StepLevel::normal);
+            const char garbage[] = "esto no es un estado de NzDrum";
+            p.setStateInformation (garbage, (int) sizeof (garbage));
+            p.setStateInformation (nullptr, 0);
+            expect (p.getStep (1, 1, 1) == StepLevel::normal);
+        }
+
+        folder.deleteRecursively();
+    }
+
+private:
+    static void prepare (NzDrumProcessor& p)
+    {
+        p.setPlayConfigDetails (0, 2, testSampleRate, blockSize);
+        p.prepareToPlay (testSampleRate, blockSize);
+    }
+
+    static float value (NzDrumProcessor& p, const juce::String& id)
+    {
+        return p.getParameters().getRawParameterValue (id)->load();
+    }
+};
+
+static StateTests stateTests;
