@@ -977,6 +977,34 @@ public:
             expect (p.getPadFile (1) == juce::File());
         }
 
+        beginTest ("Una carga pedida antes del estado no pisa la ruta restaurada");
+        {
+            // Varias cargas largas en cola antes del estado: con el arreglo,
+            // al terminar se descartan y la ruta del pad 1 es siempre kick.
+            const auto big = writeTestWav (folder, "grande.wav", 2000000);
+
+            NzDrumProcessor p;
+            prepare (p);
+
+            for (int i = 0; i < 4; ++i)
+                p.loadSample (0, big);
+
+            p.setStateInformation (saved.getData(), (int) saved.getSize());
+
+            bool alwaysRestored = true;
+            const auto deadline = juce::Time::getMillisecondCounter() + 20000;
+
+            while (p.isLoading (0) && juce::Time::getMillisecondCounter() < deadline)
+            {
+                alwaysRestored = alwaysRestored && p.getPadFile (0) == kick;
+                juce::Thread::sleep (1);
+            }
+
+            expect (! p.isLoading (0));
+            expect (alwaysRestored, "una carga vieja piso la ruta restaurada");
+            expect (p.getPadFile (0) == kick);
+        }
+
         beginTest ("Datos basura no rompen nada ni cambian el estado");
         {
             NzDrumProcessor p;
