@@ -29,6 +29,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout NzDrumProcessor::createParam
                                                              juce::AudioParameterFloatAttributes().withLabel ("%")
                                                                  .withStringFromValueFunction ([] (float v, int) { return juce::String (v, 1); })));
 
+    // El patrón que suena, de 1 a 16. Automatizándolo en el DAW se encadenan
+    // patrones; el cambio espera a que termine el patrón actual.
+    layout.add (std::make_unique<juce::AudioParameterInt> (juce::ParameterID { "pattern", 1 },
+                                                           juce::String::fromUTF8 ("Patrón"), 1, numPatterns, 1));
+
     // El 1 de ParameterID es la versión: si algún día cambia un parámetro,
     // los hosts lo usan para no confundirlo con el anterior.
     const auto id = [] (int pad, const char* name) { return juce::ParameterID { paramId (pad, name), 1 }; };
@@ -99,6 +104,8 @@ NzDrumProcessor::NzDrumProcessor()
     }
 
     swingParameter = parameters.getRawParameterValue ("swing");
+    patternParameter = parameters.getRawParameterValue ("pattern");
+    patternParameterObject = parameters.getParameter ("pattern");
 
     for (auto& length : patternLengths)
         length.store (defaultPatternLength, std::memory_order_relaxed);
@@ -185,7 +192,7 @@ void NzDrumProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
     {
         // Detenido: el patrón pedido pasa a ser el actual de inmediato.
         sequencerRunning = false;
-        currentPattern = selectedPattern.load (std::memory_order_relaxed);
+        currentPattern = getSelectedPattern();
         playingPattern.store (currentPattern, std::memory_order_relaxed);
         playingStep.store (-1, std::memory_order_relaxed);
     }
@@ -266,7 +273,7 @@ void NzDrumProcessor::collectSequencerEvents (const juce::AudioPlayHead::Positio
 
     if (! sequencerRunning || std::abs (blockStart - expectedBlockStart) > jumpTolerance)
     {
-        currentPattern = selectedPattern.load (std::memory_order_relaxed);
+        currentPattern = getSelectedPattern();
         patternAnchor = 0;
     }
 
@@ -305,7 +312,7 @@ void NzDrumProcessor::collectSequencerEvents (const juce::AudioPlayHead::Positio
         // Al terminar el patrón (vuelve al paso 1) entra el pedido pendiente.
         if (positionInPattern (index) == 0)
         {
-            const int requested = selectedPattern.load (std::memory_order_relaxed);
+            const int requested = getSelectedPattern();
 
             if (requested != currentPattern)
             {
@@ -621,10 +628,16 @@ int NzDrumProcessor::getPatternLength (int pattern) const noexcept
                : defaultPatternLength;
 }
 
-void NzDrumProcessor::selectPattern (int pattern) noexcept
+void NzDrumProcessor::selectPattern (int pattern)
 {
     if (juce::isPositiveAndBelow (pattern, numPatterns))
-        selectedPattern.store (pattern, std::memory_order_relaxed);
+    {
+        // Con gesto, para que el DAW lo grabe como un solo cambio cuando la
+        // automatización está en modo escritura.
+        patternParameterObject->beginChangeGesture();
+        patternParameterObject->setValueNotifyingHost (patternParameterObject->convertTo0to1 ((float) (pattern + 1)));
+        patternParameterObject->endChangeGesture();
+    }
 }
 
 void NzDrumProcessor::clearPattern (int pattern) noexcept
@@ -704,7 +717,8 @@ void NzDrumProcessor::pastePad (int pad)
 
 int NzDrumProcessor::getSelectedPattern() const noexcept
 {
-    return selectedPattern.load (std::memory_order_relaxed);
+    // El parámetro va de 1 a 16; acá contamos desde 0.
+    return juce::jlimit (0, numPatterns - 1, juce::roundToInt (patternParameter->load (std::memory_order_relaxed)) - 1);
 }
 
 int NzDrumProcessor::getPlayingPattern() const noexcept

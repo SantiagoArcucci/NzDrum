@@ -721,6 +721,46 @@ public:
             setParameter (p, NzDrumProcessor::paramId (0, "mute"), 0.0f);
         }
 
+        beginTest ("El patron elegido es el parametro del host 'pattern' (1 a 16)");
+        {
+            stop (p, host);
+            setParameter (p, "pattern", 5.0f);
+            expectEquals (p.getSelectedPattern(), 4);
+            stop (p, host);
+            expectEquals (p.getPlayingPattern(), 4);
+
+            p.selectPattern (9);
+            expectEquals (p.getParameters().getRawParameterValue ("pattern")->load(), 10.0f);
+            p.selectPattern (0);
+            stop (p, host);
+        }
+
+        beginTest ("Automatizar el parametro encadena patrones al final de cada uno");
+        {
+            // Patron 1 de 4 pasos con el pad 1; patron 2 de 4 pasos con el pad 2.
+            p.setPatternLength (0, 4);
+            p.setPatternLength (1, 4);
+            p.setStep (0, 0, 0, StepLevel::normal);
+            p.setStep (1, 1, 0, StepLevel::normal);
+            setParameter (p, "pattern", 1.0f);
+            stop (p, host);
+
+            // Como en un DAW: la automatizacion cambia a mitad del primer
+            // patron y el cambio entra recien en la negra siguiente.
+            Onsets onsets;
+            playInto (onsets, p, host, 0.0, 0.5, 0);
+            setParameter (p, "pattern", 2.0f);
+            playInto (onsets, p, host, 0.5, 2.5, (int) (0.5 * samplesPerQuarter));
+
+            expect (onsets.left == std::vector<int> { 0 }, "pad 1: " + describe (onsets.left));
+            expect (onsets.right == std::vector<int> { 24000, 48000 }, "pad 2: " + describe (onsets.right));
+
+            p.clearPattern (0);
+            p.clearPattern (1);
+            setParameter (p, "pattern", 1.0f);
+            stop (p, host);
+        }
+
         beginTest ("Con el host detenido, el cambio de patron es inmediato");
         {
             stop (p, host);
