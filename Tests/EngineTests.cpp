@@ -1033,3 +1033,64 @@ private:
 };
 
 static StateTests stateTests;
+
+// ============================================================================
+// Cómo se muestran y se leen los valores de las perillas
+// ============================================================================
+
+class DisplayTests final : public juce::UnitTest
+{
+public:
+    DisplayTests() : juce::UnitTest ("Textos de las perillas", "NzDrum") {}
+
+    void runTest() override
+    {
+        using P = NzDrumProcessor;
+
+        beginTest ("Cada valor muestra su unidad y el cero no sale como -0.00");
+        {
+            expectEquals (P::levelToText (-6.0f), juce::String ("-6.0 dB"));
+            expectEquals (P::levelToText (-0.01f), juce::String ("0.0 dB"));
+            expectEquals (P::levelToText (P::minLevelDb), juce::String ("-inf dB"));
+
+            expectEquals (P::panToText (0.001f), juce::String ("C"));
+            expectEquals (P::panToText (-0.25f), juce::String ("25 L"));
+
+            expectEquals (P::pitchToText (-0.001f), juce::String ("0.00 st"));
+            expectEquals (P::pitchToText (0.0f), juce::String ("0.00 st"));
+            expectEquals (P::pitchToText (1.5f), juce::String ("+1.50 st"));
+            expectEquals (P::pitchToText (-12.0f), juce::String ("-12.00 st"));
+
+            expectEquals (P::decayToText (0.25f), juce::String ("250 ms"));
+            expectEquals (P::decayToText (1.5f), juce::String ("1.50 s"));
+            expectEquals (P::decayToText (P::maxDecaySeconds), juce::String ("off"));
+        }
+
+        beginTest ("Lo que se escribe a mano se entiende, con o sin unidad");
+        {
+            expectWithinAbsoluteError (P::textToLevel ("-6 dB"), -6.0f, 1.0e-4f);
+            expectWithinAbsoluteError (P::textToLevel ("-inf"), P::minLevelDb, 1.0e-4f);
+            expectWithinAbsoluteError (P::textToPan ("30 L"), -0.3f, 1.0e-4f);
+            expectWithinAbsoluteError (P::textToPan ("30R"), 0.3f, 1.0e-4f);
+            expectWithinAbsoluteError (P::textToPan ("C"), 0.0f, 1.0e-4f);
+            expectWithinAbsoluteError (P::textToPitch ("+1,5 st"), 1.5f, 1.0e-4f);
+            expectWithinAbsoluteError (P::textToDecay ("250 ms"), 0.25f, 1.0e-4f);
+            expectWithinAbsoluteError (P::textToDecay ("1.2"), 1.2f, 1.0e-4f);
+            expectWithinAbsoluteError (P::textToDecay ("off"), P::maxDecaySeconds, 1.0e-4f);
+        }
+
+        beginTest ("El host ve los mismos textos que la perilla");
+        {
+            NzDrumProcessor p;
+            auto* pitch = p.getParameters().getParameter (P::paramId (0, "pitch"));
+            expect (pitch != nullptr);
+            expectEquals (pitch->getText (pitch->convertTo0to1 (-0.001f), 32), juce::String ("0.00 st"));
+
+            auto* start = p.getParameters().getParameter (P::paramId (0, "start"));
+            expectEquals (start->getText (0.125f, 32), juce::String ("12.5 %"));
+            expectWithinAbsoluteError (start->getValueForText ("50 %"), 0.5f, 1.0e-4f);
+        }
+    }
+};
+
+static DisplayTests displayTests;

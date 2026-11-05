@@ -52,6 +52,17 @@ public:
     // IDs de los parámetros de un pad, por ejemplo "pad3_level".
     static juce::String paramId (int pad, const char* name);
 
+    // Cómo se muestran los valores (perillas y host) y cómo se leen de vuelta
+    // cuando se escriben a mano. Públicas para poder testearlas.
+    static juce::String levelToText (float db);
+    static float textToLevel (const juce::String& text);
+    static juce::String panToText (float pan);
+    static float textToPan (const juce::String& text);
+    static juce::String pitchToText (float semitones);
+    static float textToPitch (const juce::String& text);
+    static juce::String decayToText (float seconds);
+    static float textToDecay (const juce::String& text);
+
     NzDrumProcessor();
     ~NzDrumProcessor() override;
 
