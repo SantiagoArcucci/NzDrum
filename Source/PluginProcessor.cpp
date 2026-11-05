@@ -524,6 +524,7 @@ void NzDrumProcessor::finishLoad (int pad, const juce::File& file, std::unique_p
         {
             const juce::ScopedLock lock (padFilesLock);
             padFiles[(size_t) pad] = file;
+            padMissing[(size_t) pad] = false;
         }
 
         sampleSeconds[(size_t) pad].store (sample->audio.getNumSamples() / sample->sampleRate);
@@ -754,6 +755,158 @@ juce::File NzDrumProcessor::getPadFile (int pad) const
 {
     const juce::ScopedLock lock (padFilesLock);
     return padFiles[(size_t) pad];
+}
+
+bool NzDrumProcessor::isPadMissing (int pad) const
+{
+    const juce::ScopedLock lock (padFilesLock);
+    return juce::isPositiveAndBelow (pad, numPads) && padMissing[(size_t) pad];
+}
+
+void NzDrumProcessor::restorePad (int pad, const juce::File& file)
+{
+    if (! juce::isPositiveAndBelow (pad, numPads))
+        return;
+
+    pendingLoads[(size_t) pad].fetch_add (1);
+
+    // Por el mismo hilo de carga que el resto, así queda en orden con
+    // cualquier carga pedida antes.
+    loaderPool.addJob ([this, pad, file]
+    {
+        auto sample = file == juce::File() ? nullptr : readFile (file);
+
+        if (sample != nullptr)
+        {
+            finishLoad (pad, file, std::move (sample));
+            return;
+        }
+
+        // Vacío o faltante: un sample sin audio deja el pad mudo (la voz no
+        // arranca con menos de 2 muestras) sin tocar el mecanismo del slot.
+        {
+            const juce::ScopedLock lock (padFilesLock);
+            padFiles[(size_t) pad] = file;
+            padMissing[(size_t) pad] = file != juce::File();
+        }
+
+        sampleSeconds[(size_t) pad].store (0.0);
+        slots[(size_t) pad].publish (std::make_unique<LoadedSample>());
+        pendingLoads[(size_t) pad].fetch_sub (1);
+    });
+}
+
+// ============================================================================
+// Estado de la sesión
+// ============================================================================
+
+namespace
+{
+    // Versión del formato, por si algún día cambia.
+    constexpr int stateVersion = 1;
+    const juce::Identifier dataTag { "NzDrumData" };
+}
+
+void NzDrumProcessor::getStateInformation (juce::MemoryBlock& destination)
+{
+    auto state = parameters.copyState();
+
+    juce::ValueTree data (dataTag);
+    data.setProperty ("version", stateVersion, nullptr);
+
+    // Cada patrón: su largo y los pasos de los 16 pads como 512 dígitos
+    // (0 apagado, 1 bajo, 2 normal, 3 acento). Compacto y fácil de leer.
+    for (int pattern = 0; pattern < numPatterns; ++pattern)
+    {
+        juce::String digits;
+        digits.preallocateBytes ((size_t) (numPads * maxSteps + 1));
+
+        for (int pad = 0; pad < numPads; ++pad)
+            for (int step = 0; step < maxSteps; ++step)
+                digits << juce::String::charToString ((juce::juce_wchar) ('0' + (int) getStep (pattern, pad, step)));
+
+        juce::ValueTree node ("Pattern");
+        node.setProperty ("index", pattern, nullptr);
+        node.setProperty ("length", getPatternLength (pattern), nullptr);
+        node.setProperty ("steps", digits, nullptr);
+        data.appendChild (node, nullptr);
+    }
+
+    for (int pad = 0; pad < numPads; ++pad)
+    {
+        const auto file = getPadFile (pad);
+
+        if (file != juce::File())
+        {
+            juce::ValueTree node ("Pad");
+            node.setProperty ("index", pad, nullptr);
+            node.setProperty ("path", file.getFullPathName(), nullptr);
+            data.appendChild (node, nullptr);
+        }
+    }
+
+    state.appendChild (data, nullptr);
+
+    if (auto xml = state.createXml())
+        copyXmlToBinary (*xml, destination);
+}
+
+void NzDrumProcessor::setStateInformation (const void* data, int sizeInBytes)
+{
+    const auto xml = getXmlFromBinary (data, sizeInBytes);
+
+    if (xml == nullptr || ! xml->hasTagName (parameters.state.getType()))
+        return;
+
+    auto tree = juce::ValueTree::fromXml (*xml);
+    const auto extra = tree.getChildWithName (dataTag);
+
+    // Lo nuestro no va en el árbol de parámetros: se regenera al guardar.
+    if (extra.isValid())
+        tree.removeChild (extra, nullptr);
+
+    parameters.replaceState (tree);
+
+    if (! extra.isValid())
+        return;
+
+    for (int pattern = 0; pattern < numPatterns; ++pattern)
+        clearPattern (pattern);
+
+    std::array<juce::File, numPads> files;
+
+    for (const auto& node : extra)
+    {
+        const int index = node.getProperty ("index", -1);
+
+        if (node.hasType ("Pattern") && juce::isPositiveAndBelow (index, numPatterns))
+        {
+            setPatternLength (index, node.getProperty ("length", defaultPatternLength));
+
+            const auto digits = node.getProperty ("steps").toString();
+
+            for (int i = 0; i < juce::jmin (digits.length(), numPads * maxSteps); ++i)
+            {
+                const int level = (int) digits[i] - '0';
+
+                if (level >= (int) StepLevel::off && level <= (int) StepLevel::accent)
+                    setStep (index, i / maxSteps, i % maxSteps, (StepLevel) level);
+            }
+        }
+        else if (node.hasType ("Pad") && juce::isPositiveAndBelow (index, numPads))
+        {
+            const auto path = node.getProperty ("path").toString();
+
+            if (juce::File::isAbsolutePath (path))
+                files[(size_t) index] = juce::File (path);
+        }
+    }
+
+    // Todos los pads, también los que no estaban en la sesión: si el host
+    // carga un estado sobre una instancia con samples, esos pads se vacían.
+    for (int pad = 0; pad < numPads; ++pad)
+        if (files[(size_t) pad] != getPadFile (pad) || isPadMissing (pad))
+            restorePad (pad, files[(size_t) pad]);
 }
 
 bool NzDrumProcessor::isLoading (int pad) const noexcept

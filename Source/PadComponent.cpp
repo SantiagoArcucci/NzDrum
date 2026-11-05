@@ -48,6 +48,14 @@ void PadComponent::refresh()
         needsRepaint = true;
     }
 
+    const bool nowMissing = nzProcessor.isPadMissing (pad);
+
+    if (nowMissing != missing)
+    {
+        missing = nowMissing;
+        needsRepaint = true;
+    }
+
     const bool nowLoading = nzProcessor.isLoading (pad);
 
     if (nowLoading != loading)
@@ -112,6 +120,14 @@ void PadComponent::paint (juce::Graphics& g)
     // Los literales con acentos se pasan como UTF-8 explícito: juce::String
     // interpreta un const char* como ASCII.
     juce::String label = fileName.isEmpty() ? juce::String::fromUTF8 ("Vacío") : fileName;
+
+    // La sesión pedía un archivo que ya no está: lo decimos en rojo, con el
+    // nombre, para que se pueda volver a cargar.
+    if (missing)
+    {
+        label = "Falta: " + fileName;
+        g.setColour (juce::Colour (0xffff6b5e));
+    }
 
     if (loading)
         label = "Cargando...";

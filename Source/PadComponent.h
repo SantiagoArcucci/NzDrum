@@ -47,6 +47,7 @@ private:
 
     juce::String fileName;
     bool loading = false;
+    bool missing = false;
     bool dragHover = false;
     bool selected = false;
     bool audible = true;

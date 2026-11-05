@@ -77,9 +77,10 @@ public:
     const juce::String getProgramName (int) override { return {}; }
     void changeProgramName (int, const juce::String&) override {}
 
-    // Guardar las rutas de los samples llega en la etapa 6.
-    void getStateInformation (juce::MemoryBlock&) override {}
-    void setStateInformation (const void*, int) override {}
+    // Estado de la sesión: parámetros, patrones con sus largos y la ruta del
+    // sample de cada pad (el audio no se guarda, solo la ruta).
+    void getStateInformation (juce::MemoryBlock&) override;
+    void setStateInformation (const void*, int) override;
 
     // ---- API para la UI (hilo de UI) ----
 
@@ -94,6 +95,10 @@ public:
     void triggerFromUi (int pad, float velocity) noexcept;
 
     juce::File getPadFile (int pad) const;
+
+    // true si la sesión pedía un archivo que no está (o no se pudo leer).
+    // getPadFile devuelve igual esa ruta, para mostrarla.
+    bool isPadMissing (int pad) const;
     bool isLoading (int pad) const noexcept;
     uint32_t getTriggerCount (int pad) const noexcept;
     bool isSupportedFile (const juce::File& file) const;
@@ -203,6 +208,10 @@ private:
     juce::Array<juce::File> listAudioFilesNextTo (const juce::File& current) const;
     void finishLoad (int pad, const juce::File& file, std::unique_ptr<LoadedSample> sample);
 
+    // Deja el pad como lo guardó la sesión: carga `file`, lo marca como
+    // faltante si no se puede leer, o lo vacía si `file` está vacío.
+    void restorePad (int pad, const juce::File& file);
+
     // Formatos de audio: se registran en el constructor y después solo se
     // leen, así que se pueden usar desde el hilo de carga.
     juce::AudioFormatManager formats;
@@ -216,6 +225,7 @@ private:
     // (nunca el de audio), así que acá un lock está bien.
     mutable juce::CriticalSection padFilesLock;
     std::array<juce::File, numPads> padFiles;
+    std::array<bool, numPads> padMissing {};
     std::array<std::atomic<int>, numPads> pendingLoads {};
 
     // Comunicación UI <-> audio sin locks.
