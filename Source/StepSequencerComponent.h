@@ -37,6 +37,7 @@ private:
     int pattern = 0;
     int length = NzDrumProcessor::defaultPatternLength;
     int playingStep = -1;   // -1 si no suena este patrón
+    std::array<StepLevel, NzDrumProcessor::maxSteps> shownSteps {};   // lo último que se dibujó
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (StepSequencerComponent)
 };
