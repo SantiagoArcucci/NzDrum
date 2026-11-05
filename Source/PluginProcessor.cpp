@@ -20,6 +20,86 @@ bool NzDrumProcessor::isValidPatternLength (int length) noexcept
     return length == 4 || length == 8 || length == 16 || length == 32;
 }
 
+namespace
+{
+    // El número que haya en un texto escrito a mano ("-6 dB", "250ms",
+    // "1,5 st"): se ignoran las unidades y se acepta coma decimal.
+    float numberIn (const juce::String& text)
+    {
+        return text.retainCharacters ("0123456789.,-+").replaceCharacter (',', '.').getFloatValue();
+    }
+
+    // Evita el "-0.00": cualquier valor que se redondee a cero se muestra 0.
+    juce::String fixed (float value, int decimals)
+    {
+        const auto scale = std::pow (10.0f, (float) decimals);
+        return juce::String (std::abs (value) * scale < 0.5f ? 0.0f : value, decimals);
+    }
+}
+
+juce::String NzDrumProcessor::levelToText (float db)
+{
+    return db <= minLevelDb ? juce::String ("-inf dB") : fixed (db, 1) + " dB";
+}
+
+float NzDrumProcessor::textToLevel (const juce::String& text)
+{
+    return text.containsIgnoreCase ("inf") ? minLevelDb : numberIn (text);
+}
+
+juce::String NzDrumProcessor::panToText (float pan)
+{
+    const int percent = juce::roundToInt (std::abs (pan) * 100.0f);
+    return percent == 0 ? juce::String ("C") : juce::String (percent) + (pan < 0.0f ? " L" : " R");
+}
+
+float NzDrumProcessor::textToPan (const juce::String& text)
+{
+    // "30 L" / "30 R", o un número solo: negativo es izquierda ("-30").
+    const float number = numberIn (text) / 100.0f;
+    const float amount = juce::jlimit (0.0f, 1.0f, std::abs (number));
+
+    if (text.containsIgnoreCase ("L"))
+        return -amount;
+
+    if (text.containsIgnoreCase ("R"))
+        return amount;
+
+    return number < 0.0f ? -amount : amount;
+}
+
+juce::String NzDrumProcessor::pitchToText (float semitones)
+{
+    const auto text = fixed (semitones, 2);
+    return (text.getFloatValue() > 0.0f ? "+" : "") + text + " st";
+}
+
+float NzDrumProcessor::textToPitch (const juce::String& text)
+{
+    return numberIn (text);
+}
+
+juce::String NzDrumProcessor::decayToText (float seconds)
+{
+    if (seconds >= maxDecaySeconds)
+        return "off";
+
+    // Debajo de un segundo, en milisegundos: "250 ms" se lee mejor que "0.25 s".
+    if (seconds < 0.9995f)
+        return juce::String (juce::roundToInt (seconds * 1000.0f)) + " ms";
+
+    return juce::String (seconds, 2) + " s";
+}
+
+float NzDrumProcessor::textToDecay (const juce::String& text)
+{
+    if (text.containsIgnoreCase ("off"))
+        return maxDecaySeconds;
+
+    const float number = numberIn (text);
+    return text.containsIgnoreCase ("ms") ? number / 1000.0f : number;
+}
+
 juce::AudioProcessorValueTreeState::ParameterLayout NzDrumProcessor::createParameterLayout()
 {
     juce::AudioProcessorValueTreeState::ParameterLayout layout;
@@ -46,38 +126,34 @@ juce::AudioProcessorValueTreeState::ParameterLayout NzDrumProcessor::createParam
     {
         layout.add (std::make_unique<Float> (id (pad, "level"), label (pad, "Volumen"),
                                              juce::NormalisableRange<float> (minLevelDb, maxLevelDb, 0.1f, 2.0f), 0.0f,
-                                             Attributes().withLabel ("dB")
-                                                         .withStringFromValueFunction ([] (float v, int)
-                                                         {
-                                                             return v <= minLevelDb ? juce::String ("-inf") : juce::String (v, 1);
-                                                         })));
+                                             Attributes().withStringFromValueFunction ([] (float v, int) { return levelToText (v); })
+                                                         .withValueFromStringFunction (textToLevel)));
 
         layout.add (std::make_unique<Float> (id (pad, "pan"), label (pad, "Pan"),
                                              juce::NormalisableRange<float> (-1.0f, 1.0f, 0.01f), 0.0f,
-                                             Attributes().withStringFromValueFunction ([] (float v, int)
-                                             {
-                                                 if (std::abs (v) < 0.005f) return juce::String ("C");
-                                                 return juce::String (juce::roundToInt (std::abs (v) * 100.0f)) + (v < 0.0f ? " L" : " R");
-                                             })));
+                                             Attributes().withStringFromValueFunction ([] (float v, int) { return panToText (v); })
+                                                         .withValueFromStringFunction (textToPan)));
 
         layout.add (std::make_unique<Float> (id (pad, "pitch"), label (pad, "Pitch"),
                                              juce::NormalisableRange<float> (-maxPitchSemitones, maxPitchSemitones, 0.01f), 0.0f,
-                                             Attributes().withLabel ("st")));
+                                             Attributes().withStringFromValueFunction ([] (float v, int) { return pitchToText (v); })
+                                                         .withValueFromStringFunction (textToPitch)));
 
         // Skew < 1: más resolución en los decays cortos, que es donde se nota.
         layout.add (std::make_unique<Float> (id (pad, "decay"), label (pad, "Decay"),
                                              juce::NormalisableRange<float> (minDecaySeconds, maxDecaySeconds, 0.001f, 0.35f), maxDecaySeconds,
-                                             Attributes().withLabel ("s")
-                                                         .withStringFromValueFunction ([] (float v, int)
-                                                         {
-                                                             return v >= maxDecaySeconds ? juce::String ("off") : juce::String (v, 2);
-                                                         })));
+                                             Attributes().withStringFromValueFunction ([] (float v, int) { return decayToText (v); })
+                                                         .withValueFromStringFunction (textToDecay)));
 
         layout.add (std::make_unique<Float> (id (pad, "start"), label (pad, "Inicio"),
-                                             juce::NormalisableRange<float> (0.0f, 1.0f, 0.0001f), 0.0f));
+                                             juce::NormalisableRange<float> (0.0f, 1.0f, 0.0001f), 0.0f,
+                                             Attributes().withStringFromValueFunction ([] (float v, int) { return fixed (v * 100.0f, 1) + " %"; })
+                                                         .withValueFromStringFunction ([] (const juce::String& t) { return juce::jlimit (0.0f, 1.0f, numberIn (t) / 100.0f); })));
 
         layout.add (std::make_unique<Float> (id (pad, "end"), label (pad, "Fin"),
-                                             juce::NormalisableRange<float> (0.0f, 1.0f, 0.0001f), 1.0f));
+                                             juce::NormalisableRange<float> (0.0f, 1.0f, 0.0001f), 1.0f,
+                                             Attributes().withStringFromValueFunction ([] (float v, int) { return fixed (v * 100.0f, 1) + " %"; })
+                                                         .withValueFromStringFunction ([] (const juce::String& t) { return juce::jlimit (0.0f, 1.0f, numberIn (t) / 100.0f); })));
 
         layout.add (std::make_unique<juce::AudioParameterBool> (id (pad, "mute"), label (pad, "Mute"), false));
         layout.add (std::make_unique<juce::AudioParameterBool> (id (pad, "solo"), label (pad, "Solo"), false));

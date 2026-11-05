@@ -21,6 +21,7 @@ public:
     void mouseDrag (const juce::MouseEvent&) override;
     void mouseUp (const juce::MouseEvent&) override;
     void mouseMove (const juce::MouseEvent&) override;
+    void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
 
 private:
     enum class Marker { none, start, end };
@@ -29,6 +30,7 @@ private:
     float xFor (float proportion) const;
     float proportionAt (float x) const;
     Marker markerNear (float x) const;
+    void moveMarker (Marker marker, float value);
     juce::ParameterAttachment& attachmentFor (Marker marker);
 
     NzDrumProcessor& nzProcessor;

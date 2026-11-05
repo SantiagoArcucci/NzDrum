@@ -150,14 +150,50 @@ void WaveformView::mouseDrag (const juce::MouseEvent& event)
     if (dragging == Marker::none)
         return;
 
+    moveMarker (dragging, proportionAt (event.position.x));
+}
+
+void WaveformView::moveMarker (Marker marker, float value)
+{
     // Inicio no puede pasar a fin ni al revés.
     constexpr float minimumGap = 0.001f;
-    const float value = proportionAt (event.position.x);
 
-    if (dragging == Marker::start)
-        attachmentFor (dragging).setValueAsPartOfGesture (juce::jmin (value, end - minimumGap));
+    if (marker == Marker::start)
+        attachmentFor (marker).setValueAsPartOfGesture (juce::jlimit (0.0f, end - minimumGap, value));
     else
-        attachmentFor (dragging).setValueAsPartOfGesture (juce::jmax (value, start + minimumGap));
+        attachmentFor (marker).setValueAsPartOfGesture (juce::jlimit (start + minimumGap, 1.0f, value));
+}
+
+void WaveformView::mouseWheelMove (const juce::MouseEvent& event, const juce::MouseWheelDetails& wheel)
+{
+    if (thumbnail.getTotalLength() <= 0.0 || dragging != Marker::none)
+    {
+        Component::mouseWheelMove (event, wheel);
+        return;
+    }
+
+    // Rueda sola mueve el inicio; con Shift, el fin. En macOS, Shift + rueda
+    // llega como scroll horizontal (deltaX), así que tomamos el eje que más
+    // se movió. Con scroll "natural" el sentido se invierte, como en las
+    // perillas de JUCE: girar hacia arriba siempre mueve a la derecha.
+    float delta = std::abs (wheel.deltaY) >= std::abs (wheel.deltaX) ? wheel.deltaY : wheel.deltaX;
+
+    if (wheel.isReversed)
+        delta = -delta;
+
+    if (std::abs (delta) < 1.0e-6f)
+        return;
+
+    // Una muesca de rueda (~0.1) mueve cerca de un 1 % del sample; con Alt,
+    // diez veces más fino para ajustar el ataque de un golpe.
+    const float speed = event.mods.isAltDown() ? 0.01f : 0.1f;
+    const auto marker = event.mods.isShiftDown() ? Marker::end : Marker::start;
+    const float current = marker == Marker::start ? start : end;
+
+    auto& attachment = attachmentFor (marker);
+    attachment.beginGesture();
+    moveMarker (marker, current + delta * speed);
+    attachment.endGesture();
 }
 
 void WaveformView::mouseUp (const juce::MouseEvent&)
@@ -189,7 +225,7 @@ PadEditorComponent::PadEditorComponent (NzDrumProcessor& processor)
         knob.label.setJustificationType (juce::Justification::centred);
         knob.label.setColour (juce::Label::textColourId, textColour.withAlpha (0.7f));
         knob.slider.setColour (juce::Slider::rotarySliderFillColourId, accentColour);
-        knob.slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 64, 18);
+        knob.slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 68, 18);
         addAndMakeVisible (knob.slider);
         addAndMakeVisible (knob.label);
     }
