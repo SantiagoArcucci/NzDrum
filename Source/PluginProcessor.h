@@ -206,7 +206,8 @@ private:
     void renderVoices (juce::AudioBuffer<float>& buffer, int startSample, int endSample) noexcept;
     std::unique_ptr<LoadedSample> readFile (const juce::File& file);
     juce::Array<juce::File> listAudioFilesNextTo (const juce::File& current) const;
-    void finishLoad (int pad, const juce::File& file, std::unique_ptr<LoadedSample> sample);
+    void finishLoad (int pad, const juce::File& file, std::unique_ptr<LoadedSample> sample, uint32_t generation);
+    bool isSuperseded (int pad, uint32_t generation) const noexcept;
 
     // Deja el pad como lo guardó la sesión: carga `file`, lo marca como
     // faltante si no se puede leer, o lo vacía si `file` está vacío.
@@ -227,6 +228,10 @@ private:
     std::array<juce::File, numPads> padFiles;
     std::array<bool, numPads> padMissing {};
     std::array<std::atomic<int>, numPads> pendingLoads {};
+
+    // Sube con cada restauración de estado; las cargas pedidas con un valor
+    // anterior se descartan al terminar.
+    std::array<std::atomic<uint32_t>, numPads> restoreGeneration {};
 
     // Comunicación UI <-> audio sin locks.
     std::array<std::atomic<float>, numPads> uiTriggers {};       // velocity pedida por la UI, 0 = nada
