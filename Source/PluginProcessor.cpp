@@ -475,10 +475,17 @@ void NzDrumProcessor::loadSample (int pad, const juce::File& file)
         return;
 
     pendingLoads[(size_t) pad].fetch_add (1);
+    const auto generation = restoreGeneration[(size_t) pad].load();
 
-    loaderPool.addJob ([this, pad, file]
+    loaderPool.addJob ([this, pad, file, generation]
     {
-        finishLoad (pad, file, readFile (file));
+        if (isSuperseded (pad, generation))
+        {
+            pendingLoads[(size_t) pad].fetch_sub (1);
+            return;
+        }
+
+        finishLoad (pad, file, readFile (file), generation);
     });
 }
 
@@ -488,9 +495,17 @@ void NzDrumProcessor::stepSample (int pad, int direction)
         return;
 
     pendingLoads[(size_t) pad].fetch_add (1);
+    const auto generation = restoreGeneration[(size_t) pad].load();
 
-    loaderPool.addJob ([this, pad, direction]
+    loaderPool.addJob ([this, pad, direction, generation]
     {
+        // Si mientras esperaba se restauró un estado, este pedido ya no vale.
+        if (isSuperseded (pad, generation))
+        {
+            pendingLoads[(size_t) pad].fetch_sub (1);
+            return;
+        }
+
         // Leemos el archivo actual recién acá, en el hilo de carga: si se hace
         // click en "siguiente" varias veces seguidas, cada pedido parte del
         // resultado del anterior y no del mismo archivo.
@@ -524,21 +539,36 @@ void NzDrumProcessor::stepSample (int pad, int direction)
 
             if (auto sample = readFile (candidate))
             {
-                finishLoad (pad, candidate, std::move (sample));
+                finishLoad (pad, candidate, std::move (sample), generation);
                 return;
             }
         }
 
-        finishLoad (pad, {}, nullptr);
+        finishLoad (pad, {}, nullptr, generation);
     });
 }
 
-void NzDrumProcessor::finishLoad (int pad, const juce::File& file, std::unique_ptr<LoadedSample> sample)
+bool NzDrumProcessor::isSuperseded (int pad, uint32_t generation) const noexcept
+{
+    return restoreGeneration[(size_t) pad].load() != generation;
+}
+
+void NzDrumProcessor::finishLoad (int pad, const juce::File& file, std::unique_ptr<LoadedSample> sample, uint32_t generation)
 {
     if (sample != nullptr)
     {
         {
             const juce::ScopedLock lock (padFilesLock);
+
+            // Una carga pedida antes de restaurar un estado no pisa la ruta
+            // restaurada: se descarta (el chequeo va bajo el lock para que no
+            // se cuele entre la restauración y la escritura).
+            if (isSuperseded (pad, generation))
+            {
+                pendingLoads[(size_t) pad].fetch_sub (1);
+                return;
+            }
+
             padFiles[(size_t) pad] = file;
             padMissing[(size_t) pad] = false;
         }
@@ -788,24 +818,29 @@ void NzDrumProcessor::restorePad (int pad, const juce::File& file)
 
     pendingLoads[(size_t) pad].fetch_add (1);
 
+    // Cada restauración invalida las cargas pedidas antes (y una restauración
+    // anterior que todavía no terminó).
+    uint32_t generation = 0;
+
     // La ruta se anota ya, no cuando termine la carga: si el host guarda la
     // sesión mientras los samples todavía se están cargando, tiene que
     // guardar estas rutas y no las viejas (o ninguna).
     {
         const juce::ScopedLock lock (padFilesLock);
+        generation = ++restoreGeneration[(size_t) pad];
         padFiles[(size_t) pad] = file;
         padMissing[(size_t) pad] = false;
     }
 
     // Por el mismo hilo de carga que el resto, así queda en orden con
     // cualquier carga pedida antes.
-    loaderPool.addJob ([this, pad, file]
+    loaderPool.addJob ([this, pad, file, generation]
     {
         auto sample = file == juce::File() ? nullptr : readFile (file);
 
         if (sample != nullptr)
         {
-            finishLoad (pad, file, std::move (sample));
+            finishLoad (pad, file, std::move (sample), generation);
             return;
         }
 
@@ -813,6 +848,13 @@ void NzDrumProcessor::restorePad (int pad, const juce::File& file)
         // arranca con menos de 2 muestras) sin tocar el mecanismo del slot.
         {
             const juce::ScopedLock lock (padFilesLock);
+
+            if (isSuperseded (pad, generation))
+            {
+                pendingLoads[(size_t) pad].fetch_sub (1);
+                return;
+            }
+
             padFiles[(size_t) pad] = file;
             padMissing[(size_t) pad] = file != juce::File();
         }
