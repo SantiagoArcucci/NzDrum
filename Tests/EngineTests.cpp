@@ -1073,6 +1073,8 @@ public:
             expectWithinAbsoluteError (P::textToPan ("30 L"), -0.3f, 1.0e-4f);
             expectWithinAbsoluteError (P::textToPan ("30R"), 0.3f, 1.0e-4f);
             expectWithinAbsoluteError (P::textToPan ("C"), 0.0f, 1.0e-4f);
+            expectWithinAbsoluteError (P::textToPan ("-30"), -0.3f, 1.0e-4f);
+            expectWithinAbsoluteError (P::textToPan ("45"), 0.45f, 1.0e-4f);
             expectWithinAbsoluteError (P::textToPitch ("+1,5 st"), 1.5f, 1.0e-4f);
             expectWithinAbsoluteError (P::textToDecay ("250 ms"), 0.25f, 1.0e-4f);
             expectWithinAbsoluteError (P::textToDecay ("1.2"), 1.2f, 1.0e-4f);

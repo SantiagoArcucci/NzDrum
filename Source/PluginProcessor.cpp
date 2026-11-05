@@ -55,8 +55,17 @@ juce::String NzDrumProcessor::panToText (float pan)
 
 float NzDrumProcessor::textToPan (const juce::String& text)
 {
-    const float amount = std::abs (numberIn (text)) / 100.0f;
-    return text.containsIgnoreCase ("L") ? -amount : (text.containsIgnoreCase ("R") ? amount : 0.0f);
+    // "30 L" / "30 R", o un número solo: negativo es izquierda ("-30").
+    const float number = numberIn (text) / 100.0f;
+    const float amount = juce::jlimit (0.0f, 1.0f, std::abs (number));
+
+    if (text.containsIgnoreCase ("L"))
+        return -amount;
+
+    if (text.containsIgnoreCase ("R"))
+        return amount;
+
+    return number < 0.0f ? -amount : amount;
 }
 
 juce::String NzDrumProcessor::pitchToText (float semitones)
