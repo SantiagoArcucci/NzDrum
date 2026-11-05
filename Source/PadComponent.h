@@ -5,6 +5,7 @@
 // Un pad de la grilla: muestra el archivo cargado, suena con un click y acepta
 // archivos arrastrados. Los botones de abajo cargan un archivo o recorren la
 // carpeta del sample actual. Arriba a la derecha están mute (M) y solo (S).
+// Click derecho: copiar o pegar el pad (audio y ajustes).
 class PadComponent final : public juce::Component,
                            public juce::FileDragAndDropTarget
 {
@@ -30,6 +31,7 @@ public:
 
 private:
     void openFileChooser();
+    void showPadMenu();
 
     NzDrumProcessor& nzProcessor;
     const int pad;

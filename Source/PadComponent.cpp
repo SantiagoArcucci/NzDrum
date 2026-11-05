@@ -143,12 +143,30 @@ void PadComponent::resized()
     nextButton.setBounds (row.reduced (2, 0));
 }
 
-void PadComponent::mouseDown (const juce::MouseEvent&)
+void PadComponent::mouseDown (const juce::MouseEvent& event)
 {
+    if (event.mods.isPopupMenu())
+    {
+        showPadMenu();
+        return;
+    }
+
     nzProcessor.triggerFromUi (pad, uiVelocity);
 
     if (onSelect)
         onSelect (pad);
+}
+
+void PadComponent::showPadMenu()
+{
+    const bool hasFile = nzProcessor.getPadFile (pad) != juce::File();
+
+    juce::PopupMenu menu;
+    menu.addSectionHeader ("Pad " + juce::String (pad + 1));
+    menu.addItem ("Copiar pad (audio y ajustes)", hasFile, false, [this] { nzProcessor.copyPad (pad); });
+    menu.addItem ("Pegar pad", nzProcessor.hasCopiedPad(), false, [this] { nzProcessor.pastePad (pad); });
+
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this));
 }
 
 void PadComponent::setSelected (bool shouldBeSelected)

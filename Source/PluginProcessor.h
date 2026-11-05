@@ -4,6 +4,7 @@
 #include <juce_audio_formats/juce_audio_formats.h>
 #include <array>
 #include <atomic>
+#include <optional>
 
 #include "SampleSlot.h"
 
@@ -110,6 +111,21 @@ public:
     void selectPattern (int pattern) noexcept;
     int getSelectedPattern() const noexcept;   // el último pedido
     int getPlayingPattern() const noexcept;    // el que suena (o sonaría)
+
+    // Borrar un patrón: todos los pasos apagados y largo 16.
+    void clearPattern (int pattern) noexcept;
+
+    // Portapapeles de patrón: copiar guarda una foto de los pasos y el largo
+    // (cambios posteriores al original no afectan lo copiado).
+    void copyPattern (int pattern);
+    void pastePattern (int pattern) noexcept;
+    bool hasCopiedPattern() const noexcept { return patternClipboard.has_value(); }
+
+    // Portapapeles de pad: el archivo y los ajustes (volumen, pan, pitch,
+    // decay, inicio y fin). Mute y solo no se copian.
+    void copyPad (int pad);
+    void pastePad (int pad);
+    bool hasCopiedPad() const noexcept { return padClipboard.has_value(); }
 
     // Paso del patrón que suena, o -1 si el host está detenido.
     int getPlayingStep() const noexcept;
@@ -232,6 +248,24 @@ private:
     std::atomic<int> playingPattern { 0 };
     std::atomic<int> playingStep { -1 };
     std::atomic<float>* swingParameter = nullptr;
+
+    // Portapapeles: solo los usa el hilo de UI.
+    struct PatternClipboard
+    {
+        std::array<uint8_t, (size_t) (numPads * maxSteps)> steps {};
+        int length = defaultPatternLength;
+    };
+
+    static constexpr std::array<const char*, 6> copiedPadParameters { "level", "pan", "pitch", "decay", "start", "end" };
+
+    struct PadClipboard
+    {
+        juce::File file;
+        std::array<float, copiedPadParameters.size()> values {};
+    };
+
+    std::optional<PatternClipboard> patternClipboard;
+    std::optional<PadClipboard> padClipboard;
 
     // Estado del secuenciador en el hilo de audio.
     int currentPattern = 0;
