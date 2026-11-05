@@ -28,7 +28,22 @@ void StepSequencerComponent::refresh()
     // (mientras espera un cambio de patrón, suena el anterior).
     const int current = nzProcessor.getPlayingPattern() == newPattern ? nzProcessor.getPlayingStep() : -1;
 
-    if (newPattern != pattern || newLength != length || current != playingStep)
+    // Los pasos también pueden cambiar sin un click acá (pegar o borrar un
+    // patrón), así que comparamos lo que se ve con lo que hay.
+    bool stepsChanged = false;
+
+    for (int step = 0; step < NzDrumProcessor::maxSteps; ++step)
+    {
+        const auto level = nzProcessor.getStep (newPattern, pad, step);
+
+        if (level != shownSteps[(size_t) step])
+        {
+            shownSteps[(size_t) step] = level;
+            stepsChanged = true;
+        }
+    }
+
+    if (stepsChanged || newPattern != pattern || newLength != length || current != playingStep)
     {
         pattern = newPattern;
         length = newLength;

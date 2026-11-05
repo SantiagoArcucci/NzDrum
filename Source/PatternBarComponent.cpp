@@ -13,6 +13,7 @@ namespace
 PatternBarComponent::PatternBarComponent (NzDrumProcessor& processor)
     : nzProcessor (processor)
 {
+    setTooltip ("Click derecho en un patrón: copiar, pegar o borrar");
 }
 
 bool PatternBarComponent::patternHasSteps (int pattern) const
@@ -135,6 +136,12 @@ void PatternBarComponent::mouseDown (const juce::MouseEvent& event)
     {
         if (patternBounds (pattern).contains (event.position))
         {
+            if (event.mods.isPopupMenu())
+            {
+                showPatternMenu (pattern);
+                return;
+            }
+
             nzProcessor.selectPattern (pattern);
             refresh();
             return;
@@ -150,4 +157,17 @@ void PatternBarComponent::mouseDown (const juce::MouseEvent& event)
             return;
         }
     }
+}
+
+void PatternBarComponent::showPatternMenu (int pattern)
+{
+    juce::PopupMenu menu;
+    menu.addSectionHeader (juce::String::fromUTF8 ("Patrón ") + juce::String (pattern + 1));
+    menu.addItem ("Copiar", [this, pattern] { nzProcessor.copyPattern (pattern); });
+    menu.addItem ("Pegar", nzProcessor.hasCopiedPattern(), false, [this, pattern] { nzProcessor.pastePattern (pattern); refresh(); });
+    menu.addSeparator();
+    menu.addItem ("Borrar todos los pasos", [this, pattern] { nzProcessor.clearPattern (pattern); refresh(); });
+
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this)
+                                                  .withTargetScreenArea (localAreaToGlobal (patternBounds (pattern).toNearestInt())));
 }

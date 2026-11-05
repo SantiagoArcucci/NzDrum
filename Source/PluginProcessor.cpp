@@ -627,6 +627,81 @@ void NzDrumProcessor::selectPattern (int pattern) noexcept
         selectedPattern.store (pattern, std::memory_order_relaxed);
 }
 
+void NzDrumProcessor::clearPattern (int pattern) noexcept
+{
+    if (! juce::isPositiveAndBelow (pattern, numPatterns))
+        return;
+
+    for (int pad = 0; pad < numPads; ++pad)
+        for (int step = 0; step < maxSteps; ++step)
+            setStep (pattern, pad, step, StepLevel::off);
+
+    setPatternLength (pattern, defaultPatternLength);
+}
+
+void NzDrumProcessor::copyPattern (int pattern)
+{
+    if (! juce::isPositiveAndBelow (pattern, numPatterns))
+        return;
+
+    PatternClipboard clip;
+    clip.length = getPatternLength (pattern);
+
+    for (int pad = 0; pad < numPads; ++pad)
+        for (int step = 0; step < maxSteps; ++step)
+            clip.steps[(size_t) (pad * maxSteps + step)] = (uint8_t) getStep (pattern, pad, step);
+
+    patternClipboard = clip;
+}
+
+void NzDrumProcessor::pastePattern (int pattern) noexcept
+{
+    if (! patternClipboard.has_value() || ! juce::isPositiveAndBelow (pattern, numPatterns))
+        return;
+
+    // Paso por paso: si el patrón está sonando, el audio puede ver un bloque
+    // con el pegado a medias, que no se nota.
+    for (int pad = 0; pad < numPads; ++pad)
+        for (int step = 0; step < maxSteps; ++step)
+            setStep (pattern, pad, step, (StepLevel) patternClipboard->steps[(size_t) (pad * maxSteps + step)]);
+
+    setPatternLength (pattern, patternClipboard->length);
+}
+
+void NzDrumProcessor::copyPad (int pad)
+{
+    if (! juce::isPositiveAndBelow (pad, numPads))
+        return;
+
+    PadClipboard clip;
+    clip.file = getPadFile (pad);
+
+    for (size_t i = 0; i < copiedPadParameters.size(); ++i)
+        clip.values[i] = parameters.getRawParameterValue (paramId (pad, copiedPadParameters[i]))->load();
+
+    padClipboard = clip;
+}
+
+void NzDrumProcessor::pastePad (int pad)
+{
+    if (! padClipboard.has_value() || ! juce::isPositiveAndBelow (pad, numPads))
+        return;
+
+    if (padClipboard->file != juce::File() && padClipboard->file != getPadFile (pad))
+        loadSample (pad, padClipboard->file);
+
+    // Con gesto, para que el DAW lo registre como un solo cambio por ajuste.
+    for (size_t i = 0; i < copiedPadParameters.size(); ++i)
+    {
+        if (auto* param = parameters.getParameter (paramId (pad, copiedPadParameters[i])))
+        {
+            param->beginChangeGesture();
+            param->setValueNotifyingHost (param->convertTo0to1 (padClipboard->values[i]));
+            param->endChangeGesture();
+        }
+    }
+}
+
 int NzDrumProcessor::getSelectedPattern() const noexcept
 {
     return selectedPattern.load (std::memory_order_relaxed);

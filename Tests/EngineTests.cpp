@@ -636,6 +636,91 @@ public:
             expectEquals (p.getPlayingPattern(), 1);
         }
 
+        beginTest ("Cargar un sample entre patrones no borra el patron anterior");
+        {
+            stop (p, host);
+            p.selectPattern (3);
+            p.setStep (3, 0, 0, StepLevel::normal);
+            p.setStep (3, 0, 4, StepLevel::accent);
+
+            // Cargamos un sample en un pad que estaba vacio y despues armamos otro patron.
+            p.loadSample (5, blip);
+            expect (waitUntilLoaded (p, 5));
+            p.setStep (3, 5, 2, StepLevel::low);
+            p.selectPattern (4);
+            p.setStep (4, 0, 8, StepLevel::normal);
+            for (int i = 0; i < 10; ++i) stop (p, host);
+
+            expect (p.getStep (3, 0, 0) == StepLevel::normal);
+            expect (p.getStep (3, 0, 4) == StepLevel::accent);
+            expect (p.getStep (3, 5, 2) == StepLevel::low);
+
+            p.selectPattern (3);
+            stop (p, host);
+            const auto onsets = play (p, host, 0.0, 1.0);
+            expect (onsets.left == std::vector<int> { 0, 12000 }, describe (onsets.left));   // pad 1 en el paso 1, pad 6 en el 3
+
+            for (auto [pattern, pad, step] : { std::tuple { 3, 0, 0 }, std::tuple { 3, 0, 4 }, std::tuple { 3, 5, 2 }, std::tuple { 4, 0, 8 } })
+                p.setStep (pattern, pad, step, StepLevel::off);
+            p.selectPattern (0);
+            stop (p, host);
+        }
+
+        beginTest ("Copiar y pegar un patron copia pasos y largo, como una foto");
+        {
+            p.setStep (6, 2, 5, StepLevel::accent);
+            p.setPatternLength (6, 8);
+            p.copyPattern (6);
+            p.setStep (6, 2, 5, StepLevel::off);   // cambiar el original despues no afecta lo copiado
+
+            expect (p.hasCopiedPattern());
+            p.pastePattern (7);
+            expect (p.getStep (7, 2, 5) == StepLevel::accent);
+            expectEquals (p.getPatternLength (7), 8);
+            expect (p.getStep (6, 2, 5) == StepLevel::off);
+        }
+
+        beginTest ("Borrar un patron apaga todos los pasos y vuelve a 16");
+        {
+            p.setStep (7, 9, 31, StepLevel::low);
+            p.clearPattern (7);
+
+            bool anyStep = false;
+            for (int pad = 0; pad < NzDrumProcessor::numPads; ++pad)
+                for (int step = 0; step < NzDrumProcessor::maxSteps; ++step)
+                    anyStep = anyStep || p.getStep (7, pad, step) != StepLevel::off;
+
+            expect (! anyStep);
+            expectEquals (p.getPatternLength (7), 16);
+            p.clearPattern (6);
+        }
+
+        beginTest ("Copiar y pegar un pad copia el audio y los ajustes, no el mute");
+        {
+            const auto value = [&p] (int pad, const char* parameterName)
+            {
+                return p.getParameters().getRawParameterValue (NzDrumProcessor::paramId (pad, parameterName))->load();
+            };
+
+            expect (! p.hasCopiedPad());
+            setParameter (p, NzDrumProcessor::paramId (0, "pitch"), 7.0f);
+            setParameter (p, NzDrumProcessor::paramId (0, "start"), 0.25f);
+            setParameter (p, NzDrumProcessor::paramId (0, "mute"), 1.0f);
+            p.copyPad (0);
+            p.pastePad (9);
+            expect (waitUntilLoaded (p, 9));
+
+            expect (p.getPadFile (9) == p.getPadFile (0));
+            expectWithinAbsoluteError (value (9, "pitch"), 7.0f, 0.01f);
+            expectWithinAbsoluteError (value (9, "pan"), -1.0f, 0.01f);
+            expectWithinAbsoluteError (value (9, "start"), 0.25f, 0.001f);
+            expectEquals (value (9, "mute"), 0.0f);
+
+            setParameter (p, NzDrumProcessor::paramId (0, "pitch"), 0.0f);
+            setParameter (p, NzDrumProcessor::paramId (0, "start"), 0.0f);
+            setParameter (p, NzDrumProcessor::paramId (0, "mute"), 0.0f);
+        }
+
         beginTest ("Con el host detenido, el cambio de patron es inmediato");
         {
             stop (p, host);

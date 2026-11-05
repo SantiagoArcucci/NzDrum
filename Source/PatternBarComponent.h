@@ -6,7 +6,9 @@
 //   - El patrón elegido se pinta lleno. Si todavía suena el anterior
 //     (el cambio espera al final del patrón), ese parpadea con un borde.
 //   - Un puntito marca los patrones que tienen algún paso.
-class PatternBarComponent final : public juce::Component
+//   - Click derecho en un patrón: copiar, pegar o borrar.
+class PatternBarComponent final : public juce::Component,
+                                  public juce::SettableTooltipClient
 {
 public:
     explicit PatternBarComponent (NzDrumProcessor& processor);
@@ -23,6 +25,7 @@ private:
     juce::Rectangle<float> patternBounds (int pattern) const;
     juce::Rectangle<float> lengthBounds (int index) const;
     bool patternHasSteps (int pattern) const;
+    void showPatternMenu (int pattern);
 
     NzDrumProcessor& nzProcessor;
     int selected = 0;
