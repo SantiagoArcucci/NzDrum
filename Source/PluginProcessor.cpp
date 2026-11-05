@@ -497,12 +497,28 @@ void NzDrumProcessor::stepSample (int pad, int direction)
         const auto current = getPadFile (pad);
         const auto files = listAudioFilesNextTo (current);
         const int count = files.size();
-        const int start = juce::jmax (0, files.indexOf (current));
+        const int index = files.indexOf (current);
+        int start = index;
+
+        // Si el archivo actual ya no está (un pad "Falta"), arrancamos desde
+        // donde estaría en el orden de la carpeta: "siguiente" da el primero
+        // que viene después de su nombre y "anterior" el último antes.
+        if (index < 0)
+        {
+            int position = 0;
+
+            while (position < count && files[position].getFileName().compareNatural (current.getFileName()) < 0)
+                ++position;
+
+            start = direction > 0 ? position - 1 : position;
+        }
 
         // Si el vecino no se puede leer (archivo roto o vacío), seguimos en la
         // misma dirección hasta encontrar uno que sí, sin pasar por todos más
         // de una vez. Si no hay ninguno, el pad se queda como estaba.
-        for (int offset = 1; offset < count; ++offset)
+        const int lastOffset = index < 0 ? count : count - 1;
+
+        for (int offset = 1; offset <= lastOffset; ++offset)
         {
             const auto& candidate = files.getReference (((start + offset * direction) % count + count) % count);
 
@@ -563,7 +579,9 @@ std::unique_ptr<LoadedSample> NzDrumProcessor::readFile (const juce::File& file)
 
 juce::Array<juce::File> NzDrumProcessor::listAudioFilesNextTo (const juce::File& current) const
 {
-    if (! current.existsAsFile())
+    // Alcanza con que exista la carpeta: un pad "Falta" también puede
+    // recorrerla para encontrar el archivo movido o uno parecido.
+    if (current == juce::File() || ! current.getParentDirectory().isDirectory())
         return {};
 
     auto files = current.getParentDirectory().findChildFiles (juce::File::findFiles, false,
@@ -770,6 +788,15 @@ void NzDrumProcessor::restorePad (int pad, const juce::File& file)
 
     pendingLoads[(size_t) pad].fetch_add (1);
 
+    // La ruta se anota ya, no cuando termine la carga: si el host guarda la
+    // sesión mientras los samples todavía se están cargando, tiene que
+    // guardar estas rutas y no las viejas (o ninguna).
+    {
+        const juce::ScopedLock lock (padFilesLock);
+        padFiles[(size_t) pad] = file;
+        padMissing[(size_t) pad] = false;
+    }
+
     // Por el mismo hilo de carga que el resto, así queda en orden con
     // cualquier carga pedida antes.
     loaderPool.addJob ([this, pad, file]
@@ -902,11 +929,12 @@ void NzDrumProcessor::setStateInformation (const void* data, int sizeInBytes)
         }
     }
 
-    // Todos los pads, también los que no estaban en la sesión: si el host
-    // carga un estado sobre una instancia con samples, esos pads se vacían.
+    // Todos los pads, también los que no estaban en la sesión (si el host
+    // carga un estado sobre una instancia con samples, esos pads se vacían),
+    // y aunque la ruta parezca la misma: puede haber una carga pendiente en
+    // la cola que la cambiaría después.
     for (int pad = 0; pad < numPads; ++pad)
-        if (files[(size_t) pad] != getPadFile (pad) || isPadMissing (pad))
-            restorePad (pad, files[(size_t) pad]);
+        restorePad (pad, files[(size_t) pad]);
 }
 
 bool NzDrumProcessor::isLoading (int pad) const noexcept
