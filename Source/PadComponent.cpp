@@ -68,7 +68,18 @@ void PadComponent::refresh()
     previousButton.setEnabled (hasFile);
     nextButton.setEnabled (hasFile);
 
-    const bool nowAudible = nzProcessor.isPadAudible (pad);
+    // En modo cromático todos los pads tocan la fuente: se apagan o se
+    // prenden con el mute y el solo de ella.
+    const int source = nzProcessor.getChromaticSource();
+    const bool nowChromatic = source >= 0;
+
+    if (nowChromatic != chromatic)
+    {
+        chromatic = nowChromatic;
+        needsRepaint = true;
+    }
+
+    const bool nowAudible = nzProcessor.isPadAudible (nowChromatic ? source : pad);
 
     if (nowAudible != audible)
     {
@@ -131,6 +142,15 @@ void PadComponent::paint (juce::Graphics& g)
 
     if (loading)
         label = "Cargando...";
+
+    // En cromático el pad muestra cuántos semitonos sube o baja la fuente.
+    if (chromatic)
+    {
+        const int offset = NzDrumProcessor::chromaticOffsetFor (pad);
+        label = (offset > 0 ? "+" : "") + juce::String (offset) + " st";
+        g.setColour (offset == 0 ? accentColour : textColour);
+        g.setFont (juce::FontOptions (20.0f, juce::Font::bold));
+    }
 
     g.drawFittedText (label, textArea.removeFromTop (40), juce::Justification::centredLeft, 2);
 

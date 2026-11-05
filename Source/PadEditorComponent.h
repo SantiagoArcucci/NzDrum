@@ -50,14 +50,14 @@ private:
 };
 
 // Panel inferior: forma de onda más perillas de volumen, pan, pitch y decay
-// del pad seleccionado.
+// del pad seleccionado, y el botón del modo cromático ("16 niveles").
 class PadEditorComponent final : public juce::Component
 {
 public:
     explicit PadEditorComponent (NzDrumProcessor& processor);
 
     void setPad (int pad);
-    void refresh() { waveform.refresh(); }
+    void refresh();
 
     void resized() override;
 
@@ -73,6 +73,8 @@ private:
     NzDrumProcessor& nzProcessor;
     WaveformView waveform;
     std::array<Knob, 4> knobs;
+    juce::TextButton chromaticButton { "16 niveles" };
+    int currentPad = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PadEditorComponent)
 };

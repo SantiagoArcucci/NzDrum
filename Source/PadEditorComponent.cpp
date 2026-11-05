@@ -229,10 +229,32 @@ PadEditorComponent::PadEditorComponent (NzDrumProcessor& processor)
         addAndMakeVisible (knob.slider);
         addAndMakeVisible (knob.label);
     }
+
+    chromaticButton.setClickingTogglesState (true);
+    chromaticButton.setColour (juce::TextButton::buttonOnColourId, accentColour);
+    chromaticButton.setColour (juce::TextButton::textColourOnId, juce::Colours::black);
+    chromaticButton.setTooltip (juce::String::fromUTF8 ("Reparte el pad seleccionado en los 16 pads, un semitono por pad "
+                                                        "(el pad 9 es la afinación original). Solo para tocar en vivo: "
+                                                        "el secuenciador sigue igual."));
+    chromaticButton.onClick = [this]
+    {
+        nzProcessor.setChromaticSource (chromaticButton.getToggleState() ? currentPad : -1);
+    };
+    addAndMakeVisible (chromaticButton);
+}
+
+void PadEditorComponent::refresh()
+{
+    waveform.refresh();
+
+    // El modo vive en el procesador: si se cierra y se abre la ventana, el
+    // botón muestra lo que de verdad está pasando.
+    chromaticButton.setToggleState (nzProcessor.getChromaticSource() >= 0, juce::dontSendNotification);
 }
 
 void PadEditorComponent::setPad (int pad)
 {
+    currentPad = pad;
     waveform.setPad (pad);
 
     // Cada attachment conecta una perilla con el parámetro del pad elegido.
@@ -248,6 +270,9 @@ void PadEditorComponent::setPad (int pad)
 void PadEditorComponent::resized()
 {
     auto area = getLocalBounds();
+    auto buttonArea = area.removeFromRight (92);
+    chromaticButton.setBounds (buttonArea.withSizeKeepingCentre (84, 32));
+
     auto knobArea = area.removeFromRight (4 * 76);
     waveform.setBounds (area.reduced (0, 4).withTrimmedRight (12));
 
