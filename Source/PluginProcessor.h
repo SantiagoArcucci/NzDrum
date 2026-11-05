@@ -107,8 +107,9 @@ public:
     int getPatternLength (int pattern) const noexcept;
 
     // Pide pasar a otro patrón. Con el host detenido cambia enseguida;
-    // sonando, al terminar el patrón actual.
-    void selectPattern (int pattern) noexcept;
+    // sonando, al terminar el patrón actual. El patrón elegido es el
+    // parámetro "pattern" del host, así que también se puede automatizar.
+    void selectPattern (int pattern);
     int getSelectedPattern() const noexcept;   // el último pedido
     int getPlayingPattern() const noexcept;    // el que suena (o sonaría)
 
@@ -244,7 +245,8 @@ private:
 
     std::array<std::atomic<uint8_t>, (size_t) (numPatterns * numPads * maxSteps)> steps {};
     std::array<std::atomic<int>, numPatterns> patternLengths;
-    std::atomic<int> selectedPattern { 0 };
+    std::atomic<float>* patternParameter = nullptr;              // lo lee el audio
+    juce::RangedAudioParameter* patternParameterObject = nullptr; // lo escribe la UI
     std::atomic<int> playingPattern { 0 };
     std::atomic<int> playingStep { -1 };
     std::atomic<float>* swingParameter = nullptr;
