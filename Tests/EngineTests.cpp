@@ -925,6 +925,14 @@ public:
             runBlock (p);   // el audio toma el pad vacío
             expectEquals (peak (runBlock (p, midi), 0, blockSize), 0.0f);
 
+            // "Siguiente" desde un pad que falta recorre la carpeta igual. En
+            // la carpeta quedan kick, movido y otro: ninguno va despues de
+            // "snare" en orden natural, asi que da la vuelta a "kick.wav".
+            p.stepSample (3, +1);
+            expect (waitUntilLoaded (p, 3));
+            expect (! p.isPadMissing (3), "siguiente no recupero el pad");
+            expectEquals (p.getPadFile (3).getFileName(), juce::String ("kick.wav"));
+
             // Cargar otro archivo saca la marca.
             p.loadSample (3, other);
             expect (waitUntilLoaded (p, 3));
@@ -944,6 +952,29 @@ public:
             expect (p.getPadFile (7) == juce::File());
             expect (! p.isPadMissing (7));
             expect (p.getStep (9, 7, 2) == StepLevel::off);
+        }
+
+        beginTest ("Guardar mientras los samples se cargan guarda las rutas nuevas");
+        {
+            NzDrumProcessor p;
+            prepare (p);
+            p.setStateInformation (saved.getData(), (int) saved.getSize());
+
+            juce::MemoryBlock again;
+            p.getStateInformation (again);   // sin esperar a que terminen las cargas
+            const auto xml = juce::AudioProcessor::getXmlFromBinary (again.getData(), (int) again.getSize());
+            expect (xml != nullptr && xml->toString().contains ("kick.wav"), "se perdio la ruta del pad 1");
+            expect (waitUntilLoaded (p, 0));
+        }
+
+        beginTest ("Un estado gana sobre una carga que estaba en la cola");
+        {
+            NzDrumProcessor p;
+            prepare (p);
+            p.loadSample (1, other);   // el estado no tiene nada en el pad 2
+            p.setStateInformation (saved.getData(), (int) saved.getSize());
+            expect (waitUntilLoaded (p, 1));
+            expect (p.getPadFile (1) == juce::File());
         }
 
         beginTest ("Datos basura no rompen nada ni cambian el estado");
