@@ -5,7 +5,8 @@ namespace
     const juce::Colour offColour { 0xff2a2d35 };
     const juce::Colour accentColour { 0xffff8a3d };
     const juce::Colour textColour { 0xffe8e8ea };
-    constexpr int labelWidth = 70;
+    constexpr int recWidth = 46;
+    constexpr int labelWidth = recWidth + 64;
     constexpr float lengthAreaWidth = 150.0f;
     constexpr float lengthLabelWidth = 44.0f;
 }
@@ -13,7 +14,20 @@ namespace
 PatternBarComponent::PatternBarComponent (NzDrumProcessor& processor)
     : nzProcessor (processor)
 {
-    setTooltip ("Click derecho en un patrón: copiar, pegar o borrar");
+    setTooltip (juce::String::fromUTF8 ("Click derecho en un patrón: copiar, pegar o borrar"));
+
+    recButton.setClickingTogglesState (true);
+    recButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xffd9534f));
+    recButton.setTooltip (juce::String::fromUTF8 ("Grabar: con el DAW en play, lo que tocás en los pads (click o MIDI) "
+                                                  "queda en el paso más cercano del patrón que suena, reemplazando lo que había. "
+                                                  "En 16 niveles se graba el pad fuente con su semitono."));
+    recButton.onClick = [this] { nzProcessor.setRecording (recButton.getToggleState()); };
+    addAndMakeVisible (recButton);
+}
+
+void PatternBarComponent::resized()
+{
+    recButton.setBounds (getLocalBounds().removeFromLeft (recWidth).reduced (2, 4));
 }
 
 bool PatternBarComponent::patternHasSteps (int pattern) const
@@ -41,6 +55,7 @@ void PatternBarComponent::refresh()
         }
     };
 
+    recButton.setToggleState (nzProcessor.isRecording(), juce::dontSendNotification);
     update (selected, nzProcessor.getSelectedPattern());
     update (playing, nzProcessor.getPlayingPattern());
     update (length, nzProcessor.getPatternLength (selected));
@@ -84,7 +99,7 @@ void PatternBarComponent::paint (juce::Graphics& g)
 {
     g.setColour (textColour.withAlpha (0.6f));
     g.setFont (juce::FontOptions (13.0f, juce::Font::bold));
-    g.drawText (juce::String::fromUTF8 ("Patrón"), getLocalBounds().removeFromLeft (labelWidth).reduced (14, 0),
+    g.drawText (juce::String::fromUTF8 ("Patrón"), getLocalBounds().removeFromLeft (labelWidth).withTrimmedLeft (recWidth).reduced (8, 0),
                 juce::Justification::centredLeft);
 
     g.setFont (juce::FontOptions (12.0f, juce::Font::bold));

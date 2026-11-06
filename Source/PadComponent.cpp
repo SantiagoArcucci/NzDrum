@@ -187,7 +187,16 @@ void PadComponent::mouseDown (const juce::MouseEvent& event)
         return;
     }
 
-    nzProcessor.triggerFromUi (pad, uiVelocity);
+    // Igual que en la fila de pasos: Shift toca acentuado y Option bajo (se
+    // nota al grabar, porque el paso queda con ese nivel).
+    float velocity = uiVelocity;
+
+    if (event.mods.isShiftDown())
+        velocity = NzDrumProcessor::gainFor (StepLevel::accent);
+    else if (event.mods.isAltDown())
+        velocity = NzDrumProcessor::gainFor (StepLevel::low);
+
+    nzProcessor.triggerFromUi (pad, velocity);
 
     if (onSelect)
         onSelect (pad);

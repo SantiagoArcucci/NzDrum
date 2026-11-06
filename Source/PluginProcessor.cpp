@@ -208,6 +208,8 @@ void NzDrumProcessor::prepareToPlay (double sampleRate, int)
         voices[(size_t) v] = {};
         voices[(size_t) v].sourcePad = v % numPads;
     }
+
+    skipStepIndex.fill (-1);
 }
 
 bool NzDrumProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -266,7 +268,14 @@ void NzDrumProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
         const float velocity = uiTriggers[(size_t) pad].exchange (0.0f, std::memory_order_acq_rel);
 
         if (velocity > 0.0f)
-            addEvent (0, pad, velocity, chromaticOn);
+        {
+            TriggerEvent event;
+            event.pad = pad;
+            event.velocity = velocity;
+            event.chromatic = chromaticOn;
+            event.live = true;
+            addEvent (event);
+        }
     }
 
     if (position.hasValue() && position->getIsPlaying())
@@ -291,19 +300,34 @@ void NzDrumProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
             const int pad = message.getNoteNumber() - firstMidiNote;
 
             if (pad >= 0 && pad < numPads)
-                addEvent (juce::jlimit (0, numSamples, metadata.samplePosition), pad, message.getFloatVelocity(), chromaticOn);
+            {
+                TriggerEvent event;
+                event.offset = juce::jlimit (0, numSamples - 1, metadata.samplePosition);
+                event.pad = pad;
+                event.velocity = message.getFloatVelocity();
+                event.chromatic = chromaticOn;
+                event.live = true;
+                addEvent (event);
+            }
         }
     }
 
     // Ordenamos por muestra con insertion sort: std::sort y std::stable_sort
     // pueden reservar memoria, y la lista es corta. Es estable, así que dos
-    // disparos en la misma muestra mantienen el orden de llegada.
+    // disparos en la misma muestra mantienen el orden de llegada, salvo que
+    // lo tocado en vivo va antes que el secuenciador: si se está grabando,
+    // tiene que poder pisar el paso que suena en esa misma muestra.
+    const auto goesAfter = [] (const TriggerEvent& a, const TriggerEvent& b)
+    {
+        return a.offset > b.offset || (a.offset == b.offset && ! a.live && b.live);
+    };
+
     for (int i = 1; i < numEvents; ++i)
     {
         const auto event = events[(size_t) i];
         int j = i - 1;
 
-        for (; j >= 0 && events[(size_t) j].offset > event.offset; --j)
+        for (; j >= 0 && goesAfter (events[(size_t) j], event); --j)
             events[(size_t) (j + 1)] = events[(size_t) j];
 
         events[(size_t) (j + 1)] = event;
@@ -313,12 +337,22 @@ void NzDrumProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
     for (int pad = 0; pad < numPads; ++pad)
         blockAudible[(size_t) pad] = isPadAudible (pad);
 
+    // Se graba solo con el secuenciador andando (DAW en play).
+    const bool recordingNow = recording.load (std::memory_order_relaxed) && sequencerRunning;
+
     // 3. Renderizamos hasta cada disparo, disparamos y seguimos.
     int cursor = 0;
 
     for (int i = 0; i < numEvents; ++i)
     {
-        const auto& event = events[(size_t) i];
+        const auto event = events[(size_t) i];
+
+        if (event.cancelled)
+            continue;
+
+        if (event.live && recordingNow)
+            recordLiveHit (event, i, chromatic);
+
         renderVoices (buffer, cursor, event.offset);
         cursor = event.offset;
         // En cromático, el pad tocado elige el semitono y el que suena es la
@@ -335,10 +369,68 @@ void NzDrumProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
     renderVoices (buffer, cursor, numSamples);
 }
 
-void NzDrumProcessor::addEvent (int offset, int pad, float velocity, bool chromatic, int semitones) noexcept
+void NzDrumProcessor::addEvent (const TriggerEvent& event) noexcept
 {
     if (numEvents < maxEventsPerBlock)
-        events[(size_t) numEvents++] = { offset, pad, velocity, chromatic, semitones };
+        events[(size_t) numEvents++] = event;
+}
+
+double NzDrumProcessor::stepTimeFor (juce::int64 index) const noexcept
+{
+    return (double) index * stepLengthPpq + ((index & 1) != 0 ? swingOffsetNow : 0.0);
+}
+
+int NzDrumProcessor::patternStepFor (juce::int64 index) const noexcept
+{
+    const auto length = (juce::int64) patternLengths[(size_t) currentPattern].load (std::memory_order_relaxed);
+    return (int) ((((index - patternAnchor) % length) + length) % length);
+}
+
+StepLevel NzDrumProcessor::levelForVelocity (float velocity) noexcept
+{
+    // A mitad de camino entre los niveles (bajo 0.45, normal 0.75, acento 1).
+    if (velocity < 0.6f)
+        return StepLevel::low;
+
+    return velocity < 0.875f ? StepLevel::normal : StepLevel::accent;
+}
+
+void NzDrumProcessor::recordLiveHit (const TriggerEvent& event, int eventIndex, int chromatic) noexcept
+{
+    // En 16 niveles se graba en el pad fuente, con el semitono del pad tocado.
+    const int lane = event.chromatic ? chromatic : event.pad;
+    const int semitones = event.chromatic ? chromaticOffsetFor (event.pad) : 0;
+
+    if (! juce::isPositiveAndBelow (lane, numPads) || samplesPerQuarterNow <= 0.0)
+        return;
+
+    // El paso más cercano, con swing: un golpe un poco antes o un poco después
+    // del paso cae en ese paso.
+    const double time = blockStartPpq + event.offset / samplesPerQuarterNow;
+    const auto base = (juce::int64) std::floor (time / stepLengthPpq);
+    juce::int64 nearest = base;
+
+    for (auto candidate = base - 1; candidate <= base + 1; ++candidate)
+        if (std::abs (stepTimeFor (candidate) - time) < std::abs (stepTimeFor (nearest) - time))
+            nearest = candidate;
+
+    const int step = patternStepFor (nearest);
+    setStep (currentPattern, lane, step, levelForVelocity (event.velocity));
+    setStepPitch (currentPattern, lane, step, semitones);
+
+    // Si el paso todavía no sonó, el secuenciador no tiene que repetir el
+    // golpe que ya se escuchó en vivo. Si cae en este bloque, el paso viejo
+    // ya está en la lista; si cae más adelante, se saltea al llegar.
+    for (int i = eventIndex + 1; i < numEvents; ++i)
+    {
+        auto& later = events[(size_t) i];
+
+        if (! later.live && later.pad == lane && later.stepIndex == nearest)
+            later.cancelled = true;
+    }
+
+    if (stepTimeFor (nearest) >= blockEndPpq)
+        skipStepIndex[(size_t) lane] = nearest;
 }
 
 void NzDrumProcessor::collectSequencerEvents (const juce::AudioPlayHead::PositionInfo& position, int numSamples) noexcept
@@ -368,6 +460,7 @@ void NzDrumProcessor::collectSequencerEvents (const juce::AudioPlayHead::Positio
     {
         currentPattern = getSelectedPattern();
         patternAnchor = 0;
+        skipStepIndex.fill (-1);   // lo grabado antes del salto ya no aplica
     }
 
     sequencerRunning = true;
@@ -378,16 +471,13 @@ void NzDrumProcessor::collectSequencerEvents (const juce::AudioPlayHead::Positio
     const float swing = juce::jlimit (minSwing, maxSwing, swingParameter->load (std::memory_order_relaxed));
     const double swingOffset = (swing / 100.0 - 0.5) * 2.0 * stepLengthPpq;
 
-    const auto stepTime = [swingOffset] (juce::int64 index)
-    {
-        return (double) index * stepLengthPpq + ((index & 1) != 0 ? swingOffset : 0.0);
-    };
+    blockStartPpq = blockStart;
+    blockEndPpq = blockEnd;
+    samplesPerQuarterNow = samplesPerQuarter;
+    swingOffsetNow = swingOffset;
 
-    const auto positionInPattern = [this] (juce::int64 index)
-    {
-        const auto length = (juce::int64) patternLengths[(size_t) currentPattern].load (std::memory_order_relaxed);
-        return (int) ((((index - patternAnchor) % length) + length) % length);
-    };
+    const auto stepTime = [this] (juce::int64 index) { return stepTimeFor (index); };
+    const auto positionInPattern = [this] (juce::int64 index) { return patternStepFor (index); };
 
     // Recorremos las semicorcheas que caen dentro del bloque, en orden. El
     // margen chico evita perder un paso que cae justo en el inicio por
@@ -419,10 +509,28 @@ void NzDrumProcessor::collectSequencerEvents (const juce::AudioPlayHead::Positio
 
         for (int pad = 0; pad < numPads; ++pad)
         {
+            // Un golpe grabado antes de que llegue su paso ya se escuchó.
+            if (skipStepIndex[(size_t) pad] >= 0 && index >= skipStepIndex[(size_t) pad])
+            {
+                const bool skip = index == skipStepIndex[(size_t) pad];
+                skipStepIndex[(size_t) pad] = -1;
+
+                if (skip)
+                    continue;
+            }
+
             const auto level = getStep (currentPattern, pad, step);
 
             if (level != StepLevel::off)
-                addEvent (offset, pad, gainFor (level), false, getStepPitch (currentPattern, pad, step));
+            {
+                TriggerEvent event;
+                event.offset = offset;
+                event.pad = pad;
+                event.velocity = gainFor (level);
+                event.semitones = getStepPitch (currentPattern, pad, step);
+                event.stepIndex = index;
+                addEvent (event);
+            }
         }
     }
 
