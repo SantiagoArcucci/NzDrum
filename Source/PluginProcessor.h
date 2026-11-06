@@ -29,6 +29,12 @@ class NzDrumProcessor final : public juce::AudioProcessor,
 public:
     static constexpr int numPads = 16;
     static constexpr int firstMidiNote = 36;   // C1 en Studio Pro
+
+    // Modo cromático ("16 niveles" de una MPC): un pad se reparte en los 16,
+    // un semitono por pad. El pad 9 suena en su afinación original, los de
+    // abajo más graves y los de arriba más agudos.
+    static constexpr int chromaticRootPad = 8;
+    static constexpr int chromaticOffsetFor (int pad) noexcept { return pad - chromaticRootPad; }
     static constexpr int numPatterns = 16;     // un banco
     static constexpr int maxSteps = 32;        // semicorcheas
     static constexpr int defaultPatternLength = 16;
@@ -104,6 +110,12 @@ public:
 
     // Dispara un pad desde la UI.
     void triggerFromUi (int pad, float velocity) noexcept;
+
+    // Prende el modo cromático con `pad` como fuente, o lo apaga con -1. Solo
+    // afecta lo que se toca en vivo (clicks y MIDI): el secuenciador sigue
+    // tocando los pads normales. No se guarda con la sesión.
+    void setChromaticSource (int pad) noexcept;
+    int getChromaticSource() const noexcept { return chromaticSource.load (std::memory_order_relaxed); }
 
     juce::File getPadFile (int pad) const;
 
@@ -183,6 +195,7 @@ private:
         float gainRight = 0.0f;
         float envelope = 1.0f;    // decay: baja de a poco desde 1
         float envelopeCoefficient = 1.0f;
+        int sourcePad = 0;        // de qué pad toma el sample y el mute
         bool playing = false;
     };
 
@@ -208,12 +221,13 @@ private:
         int offset = 0;     // muestra dentro del bloque
         int pad = 0;
         float velocity = 0.0f;
+        bool chromatic = false;   // tocado en modo cromático: suena la fuente
     };
 
     void timerCallback() override;
-    void addEvent (int offset, int pad, float velocity) noexcept;
+    void addEvent (int offset, int pad, float velocity, bool chromatic = false) noexcept;
     void collectSequencerEvents (const juce::AudioPlayHead::PositionInfo& position, int numSamples) noexcept;
-    void startVoice (int pad, const LoadedSample* sample, float velocity) noexcept;
+    void startVoice (int voiceIndex, int sourcePad, float velocity, float extraSemitones) noexcept;
     void renderVoices (juce::AudioBuffer<float>& buffer, int startSample, int endSample) noexcept;
     std::unique_ptr<LoadedSample> readFile (const juce::File& file);
     juce::Array<juce::File> listAudioFilesNextTo (const juce::File& current) const;
@@ -250,10 +264,16 @@ private:
 
     // Estado del hilo de audio.
     double currentSampleRate = 44100.0;
-    std::array<PadVoice, numPads> voices;
+
+    // Una voz por pad (0 a 15) y otra por pad para el modo cromático (16 a
+    // 31): así tocar en cromático no corta lo que esté sonando el pad fuente
+    // desde el secuenciador.
+    static constexpr int numVoices = numPads * 2;
+    std::array<PadVoice, numVoices> voices;
+    std::array<float, numVoices> audibleGains {};   // 0..1, sigue a blockAudible de a poco
     std::array<const LoadedSample*, numPads> blockSamples {};
     std::array<bool, numPads> blockAudible {};
-    std::array<float, numPads> audibleGains {};   // 0..1, sigue a blockAudible de a poco
+    std::atomic<int> chromaticSource { -1 };
 
     // Lista de disparos del bloque, de tamaño fijo para no reservar memoria
     // en el hilo de audio.

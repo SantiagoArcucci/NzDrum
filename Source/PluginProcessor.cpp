@@ -203,8 +203,11 @@ void NzDrumProcessor::prepareToPlay (double sampleRate, int)
 {
     currentSampleRate = sampleRate;
 
-    for (auto& voice : voices)
-        voice = {};
+    for (int v = 0; v < numVoices; ++v)
+    {
+        voices[(size_t) v] = {};
+        voices[(size_t) v].sourcePad = v % numPads;
+    }
 }
 
 bool NzDrumProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -246,8 +249,14 @@ void NzDrumProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
         blockSamples[(size_t) pad] = slots[(size_t) pad].acquire (changed);
 
         if (changed)
-            voices[(size_t) pad].playing = false;
+            for (auto& voice : voices)
+                if (voice.sourcePad == pad)
+                    voice.playing = false;
     }
+
+    // Se lee una vez por bloque, igual que mute y solo.
+    const int chromatic = chromaticSource.load (std::memory_order_relaxed);
+    const bool chromaticOn = juce::isPositiveAndBelow (chromatic, numPads);
 
     // 2. Juntamos todos los disparos del bloque en una sola lista:
     //    clicks de la UI (al inicio del bloque), pasos del secuenciador y
@@ -257,7 +266,7 @@ void NzDrumProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
         const float velocity = uiTriggers[(size_t) pad].exchange (0.0f, std::memory_order_acq_rel);
 
         if (velocity > 0.0f)
-            addEvent (0, pad, velocity);
+            addEvent (0, pad, velocity, chromaticOn);
     }
 
     if (position.hasValue() && position->getIsPlaying())
@@ -282,7 +291,7 @@ void NzDrumProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
             const int pad = message.getNoteNumber() - firstMidiNote;
 
             if (pad >= 0 && pad < numPads)
-                addEvent (juce::jlimit (0, numSamples, metadata.samplePosition), pad, message.getFloatVelocity());
+                addEvent (juce::jlimit (0, numSamples, metadata.samplePosition), pad, message.getFloatVelocity(), chromaticOn);
         }
     }
 
@@ -312,16 +321,24 @@ void NzDrumProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
         const auto& event = events[(size_t) i];
         renderVoices (buffer, cursor, event.offset);
         cursor = event.offset;
-        startVoice (event.pad, blockSamples[(size_t) event.pad], event.velocity);
+        // En cromático, el pad tocado elige el semitono y el que suena es la
+        // fuente, con una voz propia para cada pad tocado.
+        if (event.chromatic)
+            startVoice (numPads + event.pad, chromatic, event.velocity, (float) chromaticOffsetFor (event.pad));
+        else
+            startVoice (event.pad, event.pad, event.velocity, 0.0f);
+
+        // El pad tocado destella (en cromático también, aunque suene otro).
+        triggerCounts[(size_t) event.pad].fetch_add (1, std::memory_order_relaxed);
     }
 
     renderVoices (buffer, cursor, numSamples);
 }
 
-void NzDrumProcessor::addEvent (int offset, int pad, float velocity) noexcept
+void NzDrumProcessor::addEvent (int offset, int pad, float velocity, bool chromatic) noexcept
 {
     if (numEvents < maxEventsPerBlock)
-        events[(size_t) numEvents++] = { offset, pad, velocity };
+        events[(size_t) numEvents++] = { offset, pad, velocity, chromatic };
 }
 
 void NzDrumProcessor::collectSequencerEvents (const juce::AudioPlayHead::PositionInfo& position, int numSamples) noexcept
@@ -415,9 +432,9 @@ void NzDrumProcessor::collectSequencerEvents (const juce::AudioPlayHead::Positio
     playingPattern.store (currentPattern, std::memory_order_relaxed);
 }
 
-void NzDrumProcessor::startVoice (int pad, const LoadedSample* sample, float velocity) noexcept
+void NzDrumProcessor::startVoice (int voiceIndex, int pad, float velocity, float extraSemitones) noexcept
 {
-    triggerCounts[(size_t) pad].fetch_add (1, std::memory_order_relaxed);
+    const auto* sample = blockSamples[(size_t) pad];
 
     if (sample == nullptr || sample->audio.getNumSamples() < 2)
         return;
@@ -433,12 +450,14 @@ void NzDrumProcessor::startVoice (int pad, const LoadedSample* sample, float vel
     if (end < start)
         std::swap (start, end);
 
-    auto& voice = voices[(size_t) pad];
+    auto& voice = voices[(size_t) voiceIndex];
 
-    // Si no venía sonando nada, el pad arranca directo en su estado de mute:
-    // no hay nada que suavizar y así el ataque queda intacto.
+    // Si no venía sonando nada, la voz arranca directo en el estado de mute
+    // de su pad: no hay nada que suavizar y así el ataque queda intacto.
     if (! voice.playing)
-        audibleGains[(size_t) pad] = blockAudible[(size_t) pad] ? 1.0f : 0.0f;
+        audibleGains[(size_t) voiceIndex] = blockAudible[(size_t) pad] ? 1.0f : 0.0f;
+
+    voice.sourcePad = pad;
 
     // La interpolación lee la muestra siguiente, así que la voz tiene que
     // terminar a más tardar en la última muestra: el inicio queda al menos una
@@ -446,7 +465,7 @@ void NzDrumProcessor::startVoice (int pad, const LoadedSample* sample, float vel
     voice.position = juce::jmin (start * lastIndex, lastIndex - 1.0);
     voice.endPosition = juce::jlimit (voice.position + 1.0, lastIndex, end * lastIndex);
 
-    const float pitch = params.pitch->load (std::memory_order_relaxed);
+    const float pitch = params.pitch->load (std::memory_order_relaxed) + extraSemitones;
     voice.increment = (sample->sampleRate / currentSampleRate) * std::exp2 (pitch / 12.0);
 
     const float levelDb = params.level->load (std::memory_order_relaxed);
@@ -483,13 +502,13 @@ void NzDrumProcessor::renderVoices (juce::AudioBuffer<float>& buffer, int startS
     // una consola: cortar en seco haría un click.
     const float muteStep = (float) (1.0 / (0.005 * currentSampleRate));
 
-    for (int pad = 0; pad < numPads; ++pad)
+    for (int v = 0; v < numVoices; ++v)
     {
-        auto& voice = voices[(size_t) pad];
-        const auto* sample = blockSamples[(size_t) pad];
+        auto& voice = voices[(size_t) v];
+        const auto* sample = blockSamples[(size_t) voice.sourcePad];
 
-        auto& audibleGain = audibleGains[(size_t) pad];
-        const float audibleTarget = blockAudible[(size_t) pad] ? 1.0f : 0.0f;
+        auto& audibleGain = audibleGains[(size_t) v];
+        const float audibleTarget = blockAudible[(size_t) voice.sourcePad] ? 1.0f : 0.0f;
 
         if (! voice.playing || sample == nullptr)
         {
@@ -869,6 +888,11 @@ float NzDrumProcessor::gainFor (StepLevel level) noexcept
     return 0.0f;
 }
 
+void NzDrumProcessor::setChromaticSource (int pad) noexcept
+{
+    chromaticSource.store (juce::isPositiveAndBelow (pad, numPads) ? pad : -1, std::memory_order_relaxed);
+}
+
 void NzDrumProcessor::triggerFromUi (int pad, float velocity) noexcept
 {
     if (pad >= 0 && pad < numPads)
@@ -1080,13 +1104,19 @@ double NzDrumProcessor::getTailLengthSeconds() const
     // Una nota puede seguir sonando hasta que termina su sample. El host usa
     // este valor para no cortar el final al exportar o congelar una pista.
     // Con el pitch hacia abajo el sample dura más, así que lo tenemos en cuenta.
+    //
+    // El modo cromático puede tocar cualquier pad hasta 8 semitonos más grave.
+    // Lo contamos siempre, no solo con el modo prendido: el host no vuelve a
+    // preguntar al prender o apagar el modo, y una nota grave puede seguir
+    // sonando después de apagarlo. Pasarse un poco solo alarga el export.
+    const double lowestChromatic = (double) juce::jmin (0, chromaticOffsetFor (0));
     double longest = 0.0;
 
     for (int pad = 0; pad < numPads; ++pad)
     {
         const auto& params = padParameters[(size_t) pad];
         const double region = std::abs (params.end->load() - params.start->load());
-        const double speed = std::exp2 (params.pitch->load() / 12.0);
+        const double speed = std::exp2 ((params.pitch->load() + lowestChromatic) / 12.0);
         longest = juce::jmax (longest, sampleSeconds[(size_t) pad].load() * region / speed);
     }
 

@@ -114,9 +114,10 @@ public:
             expectEquals (p.getPadFile (0).getFileName(), juce::String ("kick1.wav"));
         }
 
-        beginTest ("El tail informa la duracion del sample mas largo");
+        beginTest ("El tail informa la duracion del sample mas largo (contando el modo cromatico)");
         {
-            expectWithinAbsoluteError (p.getTailLengthSeconds(), 4000.0 / testSampleRate, 1.0e-6);
+            // 8 semitonos abajo, lo más grave que puede tocar el modo cromático.
+            expectWithinAbsoluteError (p.getTailLengthSeconds(), 4000.0 / testSampleRate * std::exp2 (8.0 / 12.0), 1.0e-6);
         }
 
         beginTest ("La nota MIDI suena en la muestra exacta");
@@ -1096,3 +1097,117 @@ public:
 };
 
 static DisplayTests displayTests;
+
+// ============================================================================
+// Modo cromático ("16 niveles")
+// ============================================================================
+
+class ChromaticTests final : public juce::UnitTest
+{
+public:
+    ChromaticTests() : juce::UnitTest ("Modo cromatico", "NzDrum") {}
+
+    void runTest() override
+    {
+        auto folder = juce::File::createTempFile ("nzdrum-chromatic");
+        folder.createDirectory();
+        const auto tone = writeTestWav (folder, "tono.wav", 4000);
+
+        beginTest ("El pad 9 suena como la fuente y los de abajo, mas graves (mas largos)");
+        {
+            NzDrumProcessor p;
+            prepare (p, tone);
+            const int normal = soundLength (p, 0);
+
+            p.setChromaticSource (0);
+            const int root = soundLength (p, NzDrumProcessor::chromaticRootPad);
+            const int low = soundLength (p, 0);    // -8 semitonos
+            const int high = soundLength (p, 15);  // +7 semitonos
+
+            expectWithinAbsoluteError (root, normal, 4);
+            expectWithinAbsoluteError ((double) low / root, std::exp2 (8.0 / 12.0), 0.01);
+            expectWithinAbsoluteError ((double) high / root, std::exp2 (-7.0 / 12.0), 0.01);
+
+            // El host no corta la nota más grave al exportar.
+            expectGreaterOrEqual (p.getTailLengthSeconds() * testSampleRate, (double) low - 1.0);
+        }
+
+        beginTest ("Se suma al pitch de la fuente");
+        {
+            NzDrumProcessor p;
+            prepare (p, tone);
+            const int root = soundLength (p, 0);
+            setParameter (p, NzDrumProcessor::paramId (0, "pitch"), 12.0f);
+            p.setChromaticSource (0);
+            const int plusTwelvePlusOne = soundLength (p, NzDrumProcessor::chromaticRootPad + 1);
+            expectWithinAbsoluteError ((double) plusTwelvePlusOne / root, std::exp2 (-13.0 / 12.0), 0.01);
+        }
+
+        beginTest ("Con la fuente en mute no suena nada; apagado vuelve a lo normal");
+        {
+            NzDrumProcessor p;
+            prepare (p, tone);
+            p.setChromaticSource (0);
+            setParameter (p, NzDrumProcessor::paramId (0, "mute"), 1.0f);
+            expectEquals (soundLength (p, 5), 0);
+
+            setParameter (p, NzDrumProcessor::paramId (0, "mute"), 0.0f);
+            p.setChromaticSource (-1);
+            expectEquals (soundLength (p, 5), 0, "el pad 6 esta vacio y no deberia sonar");
+            expectGreaterThan (soundLength (p, 0), 0);
+        }
+
+        beginTest ("Una nota cromatica no corta al pad fuente que ya sonaba");
+        {
+            NzDrumProcessor p;
+            prepare (p, tone);
+
+            juce::MidiBuffer first;
+            first.addEvent (juce::MidiMessage::noteOn (1, NzDrumProcessor::firstMidiNote, 1.0f), 0);
+            const float alone = peak (runBlock (p, first), 0, blockSize);
+
+            p.setChromaticSource (0);
+            juce::MidiBuffer second;
+            second.addEvent (juce::MidiMessage::noteOn (1, NzDrumProcessor::firstMidiNote + NzDrumProcessor::chromaticRootPad, 1.0f), 0);
+            const float together = peak (runBlock (p, second), 0, blockSize);
+
+            // Las dos voces leen la misma onda desfasada: si la primera se
+            // cortara, el pico seria el de una sola.
+            expectGreaterThan (together, alone * 1.05f);
+        }
+
+        folder.deleteRecursively();
+    }
+
+private:
+    static void prepare (NzDrumProcessor& p, const juce::File& tone)
+    {
+        p.setPlayConfigDetails (0, 2, testSampleRate, blockSize);
+        p.prepareToPlay (testSampleRate, blockSize);
+        p.loadSample (0, tone);
+        waitUntilLoaded (p, 0);
+        runBlock (p);   // el audio toma el sample
+    }
+
+    // Toca el pad por MIDI y cuenta cuántas muestras suena.
+    int soundLength (NzDrumProcessor& p, int pad)
+    {
+        juce::MidiBuffer midi;
+        midi.addEvent (juce::MidiMessage::noteOn (1, NzDrumProcessor::firstMidiNote + pad, 1.0f), 0);
+
+        int last = -1;
+
+        for (int block = 0; block < 100; ++block)
+        {
+            const auto buffer = runBlock (p, block == 0 ? midi : juce::MidiBuffer());
+
+            for (int i = 0; i < blockSize; ++i)
+                if (std::abs (buffer.getSample (0, i)) > 1.0e-6f || std::abs (buffer.getSample (1, i)) > 1.0e-6f)
+                    last = block * blockSize + i;
+        }
+
+        return last + 1;
+    }
+};
+
+static ChromaticTests chromaticTests;

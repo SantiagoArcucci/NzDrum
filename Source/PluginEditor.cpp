@@ -15,7 +15,13 @@ NzDrumEditor::NzDrumEditor (NzDrumProcessor& p)
     for (int pad = 0; pad < NzDrumProcessor::numPads; ++pad)
     {
         pads.push_back (std::make_unique<PadComponent> (nzProcessor, pad));
-        pads.back()->onSelect = [this] (int selected) { selectPad (selected); };
+        pads.back()->onSelect = [this] (int selected)
+        {
+            // En modo cromático la selección queda fija en el pad fuente: los
+            // pads tocan notas, no eligen pad.
+            if (nzProcessor.getChromaticSource() < 0)
+                selectPad (selected);
+        };
         addAndMakeVisible (*pads.back());
     }
 
@@ -31,7 +37,11 @@ NzDrumEditor::NzDrumEditor (NzDrumProcessor& p)
     addAndMakeVisible (swingLabel);
     addAndMakeVisible (swingSlider);
     addAndMakeVisible (padEditor);
-    selectPad (0);
+
+    // Si se cierra y se vuelve a abrir la ventana con el modo cromático
+    // prendido, la selección vuelve al pad que está sonando en los 16.
+    const int chromaticSource = nzProcessor.getChromaticSource();
+    selectPad (chromaticSource >= 0 ? chromaticSource : 0);
 
     setSize (720, 900);
     startTimerHz (30);

@@ -51,6 +51,7 @@ private:
     bool dragHover = false;
     bool selected = false;
     bool audible = true;
+    bool chromatic = false;   // modo cromático prendido: el pad muestra su semitono
     uint32_t lastTriggerCount = 0;
     float flash = 0.0f;   // 1 al disparar, se apaga de a poco
 
