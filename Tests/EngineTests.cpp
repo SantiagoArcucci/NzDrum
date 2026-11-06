@@ -114,9 +114,10 @@ public:
             expectEquals (p.getPadFile (0).getFileName(), juce::String ("kick1.wav"));
         }
 
-        beginTest ("El tail informa la duracion del sample mas largo");
+        beginTest ("El tail informa la duracion del sample mas largo (contando el modo cromatico)");
         {
-            expectWithinAbsoluteError (p.getTailLengthSeconds(), 4000.0 / testSampleRate, 1.0e-6);
+            // 8 semitonos abajo, lo más grave que puede tocar el modo cromático.
+            expectWithinAbsoluteError (p.getTailLengthSeconds(), 4000.0 / testSampleRate * std::exp2 (8.0 / 12.0), 1.0e-6);
         }
 
         beginTest ("La nota MIDI suena en la muestra exacta");
@@ -1126,6 +1127,9 @@ public:
             expectWithinAbsoluteError (root, normal, 4);
             expectWithinAbsoluteError ((double) low / root, std::exp2 (8.0 / 12.0), 0.01);
             expectWithinAbsoluteError ((double) high / root, std::exp2 (-7.0 / 12.0), 0.01);
+
+            // El host no corta la nota más grave al exportar.
+            expectGreaterOrEqual (p.getTailLengthSeconds() * testSampleRate, (double) low - 1.0);
         }
 
         beginTest ("Se suma al pitch de la fuente");

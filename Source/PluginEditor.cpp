@@ -37,7 +37,11 @@ NzDrumEditor::NzDrumEditor (NzDrumProcessor& p)
     addAndMakeVisible (swingLabel);
     addAndMakeVisible (swingSlider);
     addAndMakeVisible (padEditor);
-    selectPad (0);
+
+    // Si se cierra y se vuelve a abrir la ventana con el modo cromático
+    // prendido, la selección vuelve al pad que está sonando en los 16.
+    const int chromaticSource = nzProcessor.getChromaticSource();
+    selectPad (chromaticSource >= 0 ? chromaticSource : 0);
 
     setSize (720, 900);
     startTimerHz (30);

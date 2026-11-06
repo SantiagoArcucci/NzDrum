@@ -1104,13 +1104,19 @@ double NzDrumProcessor::getTailLengthSeconds() const
     // Una nota puede seguir sonando hasta que termina su sample. El host usa
     // este valor para no cortar el final al exportar o congelar una pista.
     // Con el pitch hacia abajo el sample dura más, así que lo tenemos en cuenta.
+    //
+    // El modo cromático puede tocar cualquier pad hasta 8 semitonos más grave.
+    // Lo contamos siempre, no solo con el modo prendido: el host no vuelve a
+    // preguntar al prender o apagar el modo, y una nota grave puede seguir
+    // sonando después de apagarlo. Pasarse un poco solo alarga el export.
+    const double lowestChromatic = (double) juce::jmin (0, chromaticOffsetFor (0));
     double longest = 0.0;
 
     for (int pad = 0; pad < numPads; ++pad)
     {
         const auto& params = padParameters[(size_t) pad];
         const double region = std::abs (params.end->load() - params.start->load());
-        const double speed = std::exp2 (params.pitch->load() / 12.0);
+        const double speed = std::exp2 ((params.pitch->load() + lowestChromatic) / 12.0);
         longest = juce::jmax (longest, sampleSeconds[(size_t) pad].load() * region / speed);
     }
 
