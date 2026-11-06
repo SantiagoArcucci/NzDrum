@@ -1322,3 +1322,181 @@ private:
 };
 
 static StepPitchTests stepPitchTests;
+
+// ============================================================================
+// Grabación en vivo
+// ============================================================================
+
+class RecordingTests final : public juce::UnitTest
+{
+public:
+    RecordingTests() : juce::UnitTest ("Grabacion en vivo", "NzDrum") {}
+
+    void runTest() override
+    {
+        auto folder = juce::File::createTempFile ("nzdrum-recording");
+        folder.createDirectory();
+        const auto tone = writeTestWav (folder, "tono.wav", 2000);
+
+        // A 120 BPM y 48 kHz una semicorchea dura 6000 muestras: el paso 2
+        // (índice 1) cae en la muestra 6000.
+        constexpr int stepSamples = 6000;
+
+        beginTest ("Sin Rec, tocar no escribe nada");
+        {
+            NzDrumProcessor p;
+            prepare (p, tone);
+            const auto before = p.getTriggerCount (0);
+            play (p, stepSamples + 3 * blockSize, { { stepSamples - 100, 0, 0.8f } });
+            expect (p.getStep (0, 0, 1) == StepLevel::off);
+            expectEquals ((int) (p.getTriggerCount (0) - before), 1, "el golpe tiene que sonar igual");
+        }
+
+        beginTest ("Con Rec, el golpe cae en el paso mas cercano con el nivel de su velocity");
+        {
+            NzDrumProcessor p;
+            prepare (p, tone);
+            p.setRecording (true);
+            play (p, 30 * blockSize, { { stepSamples - 100, 0, 1.0f }, { 2 * stepSamples + 2500, 3, 0.4f } });
+            expect (p.getStep (0, 0, 1) == StepLevel::accent);
+            expect (p.getStep (0, 3, 2) == StepLevel::low);
+            expect (p.getStep (0, 3, 3) == StepLevel::off);
+        }
+
+        beginTest ("En 16 niveles se graba el pad fuente con el semitono");
+        {
+            NzDrumProcessor p;
+            prepare (p, tone);
+            p.setChromaticSource (0);
+            p.setRecording (true);
+            play (p, 3 * blockSize, { { 10, NzDrumProcessor::chromaticRootPad + 3, 0.8f } });
+            expect (p.getStep (0, 0, 0) == StepLevel::normal);
+            expectEquals (p.getStepPitch (0, 0, 0), 3);
+            expect (p.getStep (0, NzDrumProcessor::chromaticRootPad + 3, 0) == StepLevel::off);
+        }
+
+        beginTest ("Un golpe antes de su paso no se repite (mismo bloque y bloque siguiente)");
+        {
+            for (const int hitAt : { stepSamples - 100, stepSamples - 1500 })
+            {
+                NzDrumProcessor p;
+                prepare (p, tone);
+                p.setPatternLength (0, 4);
+                p.setRecording (true);
+                const auto before = p.getTriggerCount (0);
+                play (p, stepSamples + 3 * blockSize, { { hitAt, 0, 0.8f } });
+                expectEquals ((int) (p.getTriggerCount (0) - before), 1, "sono dos veces: " + juce::String (hitAt));
+                expect (p.getStep (0, 0, 1) == StepLevel::normal);
+            }
+        }
+
+        beginTest ("Overdub: reemplaza el paso y en la vuelta siguiente suena una vez");
+        {
+            NzDrumProcessor p;
+            prepare (p, tone);
+            p.setPatternLength (0, 4);
+            p.setStep (0, 0, 1, StepLevel::accent);
+            p.setStepPitch (0, 0, 1, 5);
+            p.setRecording (true);
+            const auto before = p.getTriggerCount (0);
+
+            // Una vuelta entera (4 pasos = 24000 muestras) y el paso 2 de la
+            // siguiente.
+            play (p, 4 * stepSamples + stepSamples + 3 * blockSize, { { stepSamples - 100, 0, 0.4f } });
+
+            expect (p.getStep (0, 0, 1) == StepLevel::low);
+            expectEquals (p.getStepPitch (0, 0, 1), 0);
+            expectEquals ((int) (p.getTriggerCount (0) - before), 2, "el golpe grabado + la vuelta siguiente");
+        }
+
+        beginTest ("Sin Rec, un golpe en la misma muestra que un paso es el que suena");
+        {
+            NzDrumProcessor p;
+            prepare (p, tone);
+            p.setStep (0, 0, 0, StepLevel::accent);   // 1.0
+
+            FakePlayHead head;
+            p.setPlayHead (&head);
+            juce::MidiBuffer midi;
+            midi.addEvent (juce::MidiMessage::noteOn (1, NzDrumProcessor::firstMidiNote, 0.4f), 0);
+            const float level = peak (runBlock (p, midi), 0, blockSize);
+            p.setPlayHead (nullptr);
+
+            // El sample tiene pico 0.5: con 0.4 da 0.2, con el acento 0.5.
+            expectWithinAbsoluteError (level, 0.2f, 0.03f);
+        }
+
+        beginTest ("Un golpe grabado antes de cambiar de patron no saltea el patron nuevo");
+        {
+            NzDrumProcessor p;
+            prepare (p, tone);
+            p.setPatternLength (0, 4);
+            p.setStep (1, 0, 0, StepLevel::normal);
+            p.setRecording (true);
+
+            FakePlayHead head;
+            p.setPlayHead (&head);
+            const auto before = p.getTriggerCount (0);
+            const int hitAt = 4 * stepSamples - 1500;   // cae en el paso 1 de la vuelta siguiente
+
+            for (int start = 0; start < 4 * stepSamples + 3 * blockSize; start += blockSize)
+            {
+                head.ppq = (double) start / testSampleRate * (head.bpm / 60.0);
+                juce::MidiBuffer midi;
+
+                if (hitAt >= start && hitAt < start + blockSize)
+                    midi.addEvent (juce::MidiMessage::noteOn (1, NzDrumProcessor::firstMidiNote, 0.8f), hitAt - start);
+
+                runBlock (p, midi);
+
+                if (start == 0)
+                    p.selectPattern (1);   // entra al terminar el patrón 1
+            }
+
+            p.setPlayHead (nullptr);
+            expectEquals (p.getPlayingPattern(), 1);
+            expectEquals ((int) (p.getTriggerCount (0) - before), 2, "el golpe en vivo + el paso 1 del patron nuevo");
+        }
+
+        folder.deleteRecursively();
+    }
+
+private:
+    struct Hit { int sample; int pad; float velocity; };
+
+    static void prepare (NzDrumProcessor& p, const juce::File& tone)
+    {
+        p.setPlayConfigDetails (0, 2, testSampleRate, blockSize);
+        p.prepareToPlay (testSampleRate, blockSize);
+        p.loadSample (0, tone);
+        waitUntilLoaded (p, 0);
+        runBlock (p);
+    }
+
+    // Toca desde la negra 0 durante `totalSamples`, con notas MIDI en las
+    // muestras absolutas indicadas.
+    static void play (NzDrumProcessor& p, int totalSamples, std::initializer_list<Hit> hits)
+    {
+        FakePlayHead head;
+        p.setPlayHead (&head);
+
+        for (int start = 0; start < totalSamples; start += blockSize)
+        {
+            head.ppq = (double) start / testSampleRate * (head.bpm / 60.0);
+            juce::MidiBuffer midi;
+
+            for (const auto& hit : hits)
+                if (hit.sample >= start && hit.sample < start + blockSize)
+                    midi.addEvent (juce::MidiMessage::noteOn (1, NzDrumProcessor::firstMidiNote + hit.pad, hit.velocity),
+                                   hit.sample - start);
+
+            runBlock (p, midi);
+        }
+
+        head.playing = false;
+        runBlock (p);
+        p.setPlayHead (nullptr);
+    }
+};
+
+static RecordingTests recordingTests;

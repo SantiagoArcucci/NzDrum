@@ -7,6 +7,8 @@
 //     (el cambio espera al final del patrón), ese parpadea con un borde.
 //   - Un puntito marca los patrones que tienen algún paso.
 //   - Click derecho en un patrón: copiar, pegar o borrar.
+//   - Rec: con el DAW en play, lo que se toca en los pads se graba en el
+//     patrón que suena (overdub).
 class PatternBarComponent final : public juce::Component,
                                   public juce::SettableTooltipClient
 {
@@ -18,6 +20,7 @@ public:
 
     void paint (juce::Graphics&) override;
     void mouseDown (const juce::MouseEvent&) override;
+    void resized() override;
 
 private:
     static constexpr std::array<int, 4> lengths { 4, 8, 16, 32 };
@@ -28,6 +31,7 @@ private:
     void showPatternMenu (int pattern);
 
     NzDrumProcessor& nzProcessor;
+    juce::TextButton recButton { "Rec" };
     int selected = 0;
     int playing = 0;
     int length = NzDrumProcessor::defaultPatternLength;

@@ -120,6 +120,16 @@ public:
     // afecta lo que se toca en vivo (clicks y MIDI): el secuenciador sigue
     // tocando los pads normales. No se guarda con la sesión.
     void setChromaticSource (int pad) noexcept;
+
+    // Grabación en vivo (overdub): con el DAW en play, cada golpe de pad
+    // (click o MIDI) se escribe en el paso más cercano del patrón que suena,
+    // reemplazando lo que hubiera. En 16 niveles se graba en el pad fuente
+    // con su semitono. No se guarda con la sesión.
+    void setRecording (bool shouldRecord) noexcept { recording.store (shouldRecord, std::memory_order_relaxed); }
+    bool isRecording() const noexcept { return recording.load (std::memory_order_relaxed); }
+
+    // El nivel de paso más parecido a una velocity (MIDI o click).
+    static StepLevel levelForVelocity (float velocity) noexcept;
     int getChromaticSource() const noexcept { return chromaticSource.load (std::memory_order_relaxed); }
 
     juce::File getPadFile (int pad) const;
@@ -233,10 +243,16 @@ private:
         float velocity = 0.0f;
         bool chromatic = false;   // tocado en modo cromático: suena la fuente
         int semitones = 0;        // semitono del paso (solo secuenciador)
+        juce::int64 stepIndex = -1; // semicorchea absoluta (solo secuenciador)
+        bool live = false;        // click o MIDI: se puede grabar
+        bool cancelled = false;   // la pisó una grabación en este mismo bloque
     };
 
     void timerCallback() override;
-    void addEvent (int offset, int pad, float velocity, bool chromatic = false, int semitones = 0) noexcept;
+    void addEvent (const TriggerEvent& event) noexcept;
+    void recordLiveHit (const TriggerEvent& event, int eventIndex, int chromatic) noexcept;
+    double stepTimeFor (juce::int64 index) const noexcept;
+    int patternStepFor (juce::int64 index) const noexcept;
     void collectSequencerEvents (const juce::AudioPlayHead::PositionInfo& position, int numSamples) noexcept;
     void startVoice (int voiceIndex, int sourcePad, float velocity, float extraSemitones) noexcept;
     void renderVoices (juce::AudioBuffer<float>& buffer, int startSample, int endSample) noexcept;
@@ -333,6 +349,14 @@ private:
     juce::int64 patternAnchor = 0;   // semicorchea absoluta en la que empezó el patrón actual
     double expectedBlockStart = 0.0; // dónde debería empezar el próximo bloque, en negras
     bool sequencerRunning = false;
+
+    // Tiempos del bloque actual, para cuantizar lo que se graba.
+    double blockStartPpq = 0.0, blockEndPpq = 0.0, samplesPerQuarterNow = 0.0, swingOffsetNow = 0.0;
+
+    // Un golpe grabado en un paso que todavía no sonó no se repite cuando el
+    // secuenciador llega a ese paso: acá queda la semicorchea a saltear.
+    std::array<juce::int64, numPads> skipStepIndex {};
+    std::atomic<bool> recording { false };
 
     std::atomic<double> hostBpm { 0.0 };
     std::atomic<double> hostPpq { 0.0 };
