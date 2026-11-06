@@ -1211,3 +1211,114 @@ private:
 };
 
 static ChromaticTests chromaticTests;
+
+// ============================================================================
+// Semitono por paso
+// ============================================================================
+
+class StepPitchTests final : public juce::UnitTest
+{
+public:
+    StepPitchTests() : juce::UnitTest ("Semitono por paso", "NzDrum") {}
+
+    void runTest() override
+    {
+        auto folder = juce::File::createTempFile ("nzdrum-steppitch");
+        folder.createDirectory();
+        const auto tone = writeTestWav (folder, "tono.wav", 4000);
+
+        beginTest ("Se guarda dentro del rango de los 16 niveles y apagar el paso lo vuelve a 0");
+        {
+            NzDrumProcessor p;
+            p.setStep (0, 2, 3, StepLevel::normal);
+            p.setStepPitch (0, 2, 3, 5);
+            expectEquals (p.getStepPitch (0, 2, 3), 5);
+            p.setStepPitch (0, 2, 3, 20);
+            expectEquals (p.getStepPitch (0, 2, 3), NzDrumProcessor::maxStepPitch);
+            p.setStepPitch (0, 2, 3, -20);
+            expectEquals (p.getStepPitch (0, 2, 3), NzDrumProcessor::minStepPitch);
+            p.setStep (0, 2, 3, StepLevel::off);
+            expectEquals (p.getStepPitch (0, 2, 3), 0);
+        }
+
+        beginTest ("Un paso con -8 suena como el pad 1 en 16 niveles");
+        {
+            NzDrumProcessor p;
+            prepare (p, tone);
+            const int plain = stepSoundLength (p, 0);
+
+            p.setStepPitch (0, 0, 0, -8);
+            const int low = stepSoundLength (p, 0);
+            expectWithinAbsoluteError ((double) low / plain, std::exp2 (8.0 / 12.0), 0.01);
+        }
+
+        beginTest ("Copiar, pegar, borrar y guardar llevan el semitono");
+        {
+            NzDrumProcessor p;
+            p.setStep (1, 4, 7, StepLevel::accent);
+            p.setStepPitch (1, 4, 7, -3);
+            p.setStep (1, 4, 8, StepLevel::low);
+            p.setStepPitch (1, 4, 8, 7);
+
+            p.copyPattern (1);
+            p.pastePattern (2);
+            expectEquals (p.getStepPitch (2, 4, 7), -3);
+            expectEquals (p.getStepPitch (2, 4, 8), 7);
+
+            juce::MemoryBlock saved;
+            p.getStateInformation (saved);
+
+            p.clearPattern (2);
+            expectEquals (p.getStepPitch (2, 4, 7), 0);
+
+            NzDrumProcessor restored;
+            restored.setStateInformation (saved.getData(), (int) saved.getSize());
+            expectEquals (restored.getStepPitch (1, 4, 7), -3);
+            expectEquals (restored.getStepPitch (2, 4, 8), 7);
+            expectEquals (restored.getStepPitch (0, 0, 0), 0);
+            expect (restored.getStep (1, 4, 7) == StepLevel::accent);
+        }
+
+        folder.deleteRecursively();
+    }
+
+private:
+    static void prepare (NzDrumProcessor& p, const juce::File& tone)
+    {
+        p.setPlayConfigDetails (0, 2, testSampleRate, blockSize);
+        p.prepareToPlay (testSampleRate, blockSize);
+        p.loadSample (0, tone);
+        waitUntilLoaded (p, 0);
+        runBlock (p);
+    }
+
+    // Prende solo el paso 1 del pad, toca desde la negra 0 con el host y
+    // cuenta cuántas muestras suena (el patrón no vuelve a empezar hasta la
+    // muestra 96000, mucho después de la ventana).
+    int stepSoundLength (NzDrumProcessor& p, int pad)
+    {
+        p.setStep (0, pad, 0, StepLevel::accent);
+
+        FakePlayHead head;
+        p.setPlayHead (&head);
+
+        int last = -1;
+
+        for (int block = 0; block < 20; ++block)
+        {
+            head.ppq = (double) (block * blockSize) / testSampleRate * (head.bpm / 60.0);
+            const auto buffer = runBlock (p);
+
+            for (int i = 0; i < blockSize; ++i)
+                if (std::abs (buffer.getSample (0, i)) > 1.0e-6f || std::abs (buffer.getSample (1, i)) > 1.0e-6f)
+                    last = block * blockSize + i;
+        }
+
+        head.playing = false;
+        runBlock (p);
+        p.setPlayHead (nullptr);
+        return last + 1;
+    }
+};
+
+static StepPitchTests stepPitchTests;

@@ -35,6 +35,11 @@ public:
     // abajo más graves y los de arriba más agudos.
     static constexpr int chromaticRootPad = 8;
     static constexpr int chromaticOffsetFor (int pad) noexcept { return pad - chromaticRootPad; }
+
+    // Cada paso puede guardar un semitono, en el mismo rango que los 16
+    // niveles: así un paso grabado tocando en cromático suena igual.
+    static constexpr int minStepPitch = 0 - chromaticRootPad;
+    static constexpr int maxStepPitch = (numPads - 1) - chromaticRootPad;
     static constexpr int numPatterns = 16;     // un banco
     static constexpr int maxSteps = 32;        // semicorcheas
     static constexpr int defaultPatternLength = 16;
@@ -131,6 +136,11 @@ public:
     void setStep (int pattern, int pad, int step, StepLevel level) noexcept;
     StepLevel getStep (int pattern, int pad, int step) const noexcept;
 
+    // Semitono de un paso, de minStepPitch a maxStepPitch (0 = sin cambio).
+    // Se suma al pitch del pad. Apagar un paso lo vuelve a 0.
+    void setStepPitch (int pattern, int pad, int step, int semitones) noexcept;
+    int getStepPitch (int pattern, int pad, int step) const noexcept;
+
     void setPatternLength (int pattern, int length) noexcept;
     int getPatternLength (int pattern) const noexcept;
 
@@ -222,10 +232,11 @@ private:
         int pad = 0;
         float velocity = 0.0f;
         bool chromatic = false;   // tocado en modo cromático: suena la fuente
+        int semitones = 0;        // semitono del paso (solo secuenciador)
     };
 
     void timerCallback() override;
-    void addEvent (int offset, int pad, float velocity, bool chromatic = false) noexcept;
+    void addEvent (int offset, int pad, float velocity, bool chromatic = false, int semitones = 0) noexcept;
     void collectSequencerEvents (const juce::AudioPlayHead::PositionInfo& position, int numSamples) noexcept;
     void startVoice (int voiceIndex, int sourcePad, float velocity, float extraSemitones) noexcept;
     void renderVoices (juce::AudioBuffer<float>& buffer, int startSample, int endSample) noexcept;
@@ -290,6 +301,7 @@ private:
     }
 
     std::array<std::atomic<uint8_t>, (size_t) (numPatterns * numPads * maxSteps)> steps {};
+    std::array<std::atomic<int8_t>, (size_t) (numPatterns * numPads * maxSteps)> stepPitches {};
     std::array<std::atomic<int>, numPatterns> patternLengths;
     std::atomic<float>* patternParameter = nullptr;              // lo lee el audio
     juce::RangedAudioParameter* patternParameterObject = nullptr; // lo escribe la UI
@@ -301,6 +313,7 @@ private:
     struct PatternClipboard
     {
         std::array<uint8_t, (size_t) (numPads * maxSteps)> steps {};
+        std::array<int8_t, (size_t) (numPads * maxSteps)> pitches {};
         int length = defaultPatternLength;
     };
 

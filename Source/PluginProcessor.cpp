@@ -326,7 +326,7 @@ void NzDrumProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
         if (event.chromatic)
             startVoice (numPads + event.pad, chromatic, event.velocity, (float) chromaticOffsetFor (event.pad));
         else
-            startVoice (event.pad, event.pad, event.velocity, 0.0f);
+            startVoice (event.pad, event.pad, event.velocity, (float) event.semitones);
 
         // El pad tocado destella (en cromático también, aunque suene otro).
         triggerCounts[(size_t) event.pad].fetch_add (1, std::memory_order_relaxed);
@@ -335,10 +335,10 @@ void NzDrumProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
     renderVoices (buffer, cursor, numSamples);
 }
 
-void NzDrumProcessor::addEvent (int offset, int pad, float velocity, bool chromatic) noexcept
+void NzDrumProcessor::addEvent (int offset, int pad, float velocity, bool chromatic, int semitones) noexcept
 {
     if (numEvents < maxEventsPerBlock)
-        events[(size_t) numEvents++] = { offset, pad, velocity, chromatic };
+        events[(size_t) numEvents++] = { offset, pad, velocity, chromatic, semitones };
 }
 
 void NzDrumProcessor::collectSequencerEvents (const juce::AudioPlayHead::PositionInfo& position, int numSamples) noexcept
@@ -422,7 +422,7 @@ void NzDrumProcessor::collectSequencerEvents (const juce::AudioPlayHead::Positio
             const auto level = getStep (currentPattern, pad, step);
 
             if (level != StepLevel::off)
-                addEvent (offset, pad, gainFor (level));
+                addEvent (offset, pad, gainFor (level), false, getStepPitch (currentPattern, pad, step));
         }
     }
 
@@ -747,7 +747,31 @@ void NzDrumProcessor::setStep (int pattern, int pad, int step, StepLevel level) 
 {
     if (juce::isPositiveAndBelow (pattern, numPatterns) && juce::isPositiveAndBelow (pad, numPads)
         && juce::isPositiveAndBelow (step, maxSteps))
+    {
         steps[stepIndex (pattern, pad, step)].store ((uint8_t) level, std::memory_order_relaxed);
+
+        // Un paso apagado no guarda semitono: si se vuelve a prender, arranca
+        // en la afinación del pad.
+        if (level == StepLevel::off)
+            stepPitches[stepIndex (pattern, pad, step)].store (0, std::memory_order_relaxed);
+    }
+}
+
+void NzDrumProcessor::setStepPitch (int pattern, int pad, int step, int semitones) noexcept
+{
+    if (juce::isPositiveAndBelow (pattern, numPatterns) && juce::isPositiveAndBelow (pad, numPads)
+        && juce::isPositiveAndBelow (step, maxSteps))
+        stepPitches[stepIndex (pattern, pad, step)].store ((int8_t) juce::jlimit (minStepPitch, maxStepPitch, semitones),
+                                                           std::memory_order_relaxed);
+}
+
+int NzDrumProcessor::getStepPitch (int pattern, int pad, int step) const noexcept
+{
+    if (! juce::isPositiveAndBelow (pattern, numPatterns) || ! juce::isPositiveAndBelow (pad, numPads)
+        || ! juce::isPositiveAndBelow (step, maxSteps))
+        return 0;
+
+    return stepPitches[stepIndex (pattern, pad, step)].load (std::memory_order_relaxed);
 }
 
 StepLevel NzDrumProcessor::getStep (int pattern, int pad, int step) const noexcept
@@ -806,7 +830,10 @@ void NzDrumProcessor::copyPattern (int pattern)
 
     for (int pad = 0; pad < numPads; ++pad)
         for (int step = 0; step < maxSteps; ++step)
+        {
             clip.steps[(size_t) (pad * maxSteps + step)] = (uint8_t) getStep (pattern, pad, step);
+            clip.pitches[(size_t) (pad * maxSteps + step)] = (int8_t) getStepPitch (pattern, pad, step);
+        }
 
     patternClipboard = clip;
 }
@@ -820,7 +847,10 @@ void NzDrumProcessor::pastePattern (int pattern) noexcept
     // con el pegado a medias, que no se nota.
     for (int pad = 0; pad < numPads; ++pad)
         for (int step = 0; step < maxSteps; ++step)
+        {
             setStep (pattern, pad, step, (StepLevel) patternClipboard->steps[(size_t) (pad * maxSteps + step)]);
+            setStepPitch (pattern, pad, step, patternClipboard->pitches[(size_t) (pad * maxSteps + step)]);
+        }
 
     setPatternLength (pattern, patternClipboard->length);
 }
@@ -987,17 +1017,33 @@ void NzDrumProcessor::getStateInformation (juce::MemoryBlock& destination)
     // (0 apagado, 1 bajo, 2 normal, 3 acento). Compacto y fácil de leer.
     for (int pattern = 0; pattern < numPatterns; ++pattern)
     {
-        juce::String digits;
+        juce::String digits, pitches;
         digits.preallocateBytes ((size_t) (numPads * maxSteps + 1));
+        pitches.preallocateBytes ((size_t) (numPads * maxSteps + 1));
+        bool anyPitch = false;
 
         for (int pad = 0; pad < numPads; ++pad)
+        {
             for (int step = 0; step < maxSteps; ++step)
+            {
                 digits << juce::String::charToString ((juce::juce_wchar) ('0' + (int) getStep (pattern, pad, step)));
+
+                // El semitono como un dígito hexadecimal: -8 es "0", 0 es "8"
+                // y +7 es "f".
+                const int pitch = getStepPitch (pattern, pad, step);
+                anyPitch = anyPitch || pitch != 0;
+                pitches << juce::String::toHexString (pitch - minStepPitch);
+            }
+        }
 
         juce::ValueTree node ("Pattern");
         node.setProperty ("index", pattern, nullptr);
         node.setProperty ("length", getPatternLength (pattern), nullptr);
         node.setProperty ("steps", digits, nullptr);
+
+        // Solo si hay alguno: las sesiones sin semitonos quedan como antes.
+        if (anyPitch)
+            node.setProperty ("pitches", pitches, nullptr);
         data.appendChild (node, nullptr);
     }
 
@@ -1060,6 +1106,17 @@ void NzDrumProcessor::setStateInformation (const void* data, int sizeInBytes)
 
                 if (level >= (int) StepLevel::off && level <= (int) StepLevel::accent)
                     setStep (index, i / maxSteps, i % maxSteps, (StepLevel) level);
+            }
+
+            // Sesiones anteriores no tienen "pitches": quedan todos en 0.
+            const auto pitches = node.getProperty ("pitches").toString();
+
+            for (int i = 0; i < juce::jmin (pitches.length(), numPads * maxSteps); ++i)
+            {
+                const int value = juce::CharacterFunctions::getHexDigitValue (pitches[i]);
+
+                if (value >= 0 && getStep (index, i / maxSteps, i % maxSteps) != StepLevel::off)
+                    setStepPitch (index, i / maxSteps, i % maxSteps, value + minStepPitch);
             }
         }
         else if (node.hasType ("Pad") && juce::isPositiveAndBelow (index, numPads))

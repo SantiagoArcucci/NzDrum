@@ -11,6 +11,8 @@ namespace
 StepSequencerComponent::StepSequencerComponent (NzDrumProcessor& processor)
     : nzProcessor (processor)
 {
+    setTooltip (juce::String::fromUTF8 ("Click: normal · Shift: acento · Option: bajo · "
+                                        "Rueda sobre un paso: cambia su semitono"));
 }
 
 void StepSequencerComponent::setPad (int newPad)
@@ -35,10 +37,12 @@ void StepSequencerComponent::refresh()
     for (int step = 0; step < NzDrumProcessor::maxSteps; ++step)
     {
         const auto level = nzProcessor.getStep (newPattern, pad, step);
+        const int pitch = nzProcessor.getStepPitch (newPattern, pad, step);
 
-        if (level != shownSteps[(size_t) step])
+        if (level != shownSteps[(size_t) step] || pitch != shownPitches[(size_t) step])
         {
             shownSteps[(size_t) step] = level;
+            shownPitches[(size_t) step] = pitch;
             stepsChanged = true;
         }
     }
@@ -123,6 +127,16 @@ void StepSequencerComponent::paint (juce::Graphics& g)
             const auto filled = bounds.withTrimmedTop (bounds.getHeight() * (1.0f - amount));
             g.setColour (stepColour.withAlpha (0.35f + 0.65f * amount));
             g.fillRoundedRectangle (filled, 4.0f);
+
+            // El semitono, si tiene: "+3", "-5".
+            const int pitch = nzProcessor.getStepPitch (pattern, pad, step);
+
+            if (pitch != 0)
+            {
+                g.setColour (juce::Colours::black.withAlpha (0.85f));
+                g.setFont (juce::FontOptions (juce::jmin (13.0f, bounds.getHeight() * 0.45f), juce::Font::bold));
+                g.drawText ((pitch > 0 ? "+" : "") + juce::String (pitch), bounds, juce::Justification::centred);
+            }
         }
 
         if (step == playingStep)
@@ -142,4 +156,43 @@ void StepSequencerComponent::mouseDown (const juce::MouseEvent& event)
 
     nzProcessor.setStep (pattern, pad, step, levelAfterClick (nzProcessor.getStep (pattern, pad, step), event.mods));
     repaint();
+}
+
+void StepSequencerComponent::mouseWheelMove (const juce::MouseEvent& event, const juce::MouseWheelDetails& wheel)
+{
+    const int step = stepAt (event.position);
+
+    if (step < 0 || nzProcessor.getStep (pattern, pad, step) == StepLevel::off)
+    {
+        Component::mouseWheelMove (event, wheel);
+        return;
+    }
+
+    if (step != wheelStep)
+    {
+        wheelStep = step;
+        wheelAccumulator = 0.0f;
+    }
+
+    // Igual que en la forma de onda: el eje que más se movió (Shift + rueda
+    // llega como horizontal en macOS) y con scroll natural se invierte.
+    float delta = std::abs (wheel.deltaY) >= std::abs (wheel.deltaX) ? wheel.deltaY : wheel.deltaX;
+
+    if (wheel.isReversed)
+        delta = -delta;
+
+    // Una muesca de rueda de mouse es cerca de 0.1: un semitono por muesca.
+    constexpr float perSemitone = 0.08f;
+    wheelAccumulator += delta;
+
+    int change = 0;
+
+    while (wheelAccumulator >= perSemitone)  { ++change; wheelAccumulator -= perSemitone; }
+    while (wheelAccumulator <= -perSemitone) { --change; wheelAccumulator += perSemitone; }
+
+    if (change != 0)
+    {
+        nzProcessor.setStepPitch (pattern, pad, step, nzProcessor.getStepPitch (pattern, pad, step) + change);
+        repaint();
+    }
 }
