@@ -312,14 +312,18 @@ void NzDrumProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
         }
     }
 
+    // Se graba solo con el secuenciador andando (DAW en play).
+    const bool recordingNow = recording.load (std::memory_order_relaxed) && sequencerRunning;
+
     // Ordenamos por muestra con insertion sort: std::sort y std::stable_sort
     // pueden reservar memoria, y la lista es corta. Es estable, así que dos
-    // disparos en la misma muestra mantienen el orden de llegada, salvo que
-    // lo tocado en vivo va antes que el secuenciador: si se está grabando,
-    // tiene que poder pisar el paso que suena en esa misma muestra.
-    const auto goesAfter = [] (const TriggerEvent& a, const TriggerEvent& b)
+    // disparos en la misma muestra mantienen el orden de llegada. Grabando,
+    // lo tocado en vivo va antes que el secuenciador para poder pisar el paso
+    // que suena en esa misma muestra; sin grabar, el orden de siempre (el
+    // golpe en vivo, que llega último, es el que queda sonando).
+    const auto goesAfter = [recordingNow] (const TriggerEvent& a, const TriggerEvent& b)
     {
-        return a.offset > b.offset || (a.offset == b.offset && ! a.live && b.live);
+        return a.offset > b.offset || (recordingNow && a.offset == b.offset && ! a.live && b.live);
     };
 
     for (int i = 1; i < numEvents; ++i)
@@ -336,9 +340,6 @@ void NzDrumProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
     // Mute y solo se leen una vez por bloque; el cambio se suaviza en renderVoices.
     for (int pad = 0; pad < numPads; ++pad)
         blockAudible[(size_t) pad] = isPadAudible (pad);
-
-    // Se graba solo con el secuenciador andando (DAW en play).
-    const bool recordingNow = recording.load (std::memory_order_relaxed) && sequencerRunning;
 
     // 3. Renderizamos hasta cada disparo, disparamos y seguimos.
     int cursor = 0;
@@ -501,6 +502,9 @@ void NzDrumProcessor::collectSequencerEvents (const juce::AudioPlayHead::Positio
             {
                 currentPattern = requested;
                 patternAnchor = index;
+
+                // Lo grabado en el patrón anterior no saltea pasos del nuevo.
+                skipStepIndex.fill (-1);
             }
         }
 

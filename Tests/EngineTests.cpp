@@ -1409,6 +1409,55 @@ public:
             expectEquals ((int) (p.getTriggerCount (0) - before), 2, "el golpe grabado + la vuelta siguiente");
         }
 
+        beginTest ("Sin Rec, un golpe en la misma muestra que un paso es el que suena");
+        {
+            NzDrumProcessor p;
+            prepare (p, tone);
+            p.setStep (0, 0, 0, StepLevel::accent);   // 1.0
+
+            FakePlayHead head;
+            p.setPlayHead (&head);
+            juce::MidiBuffer midi;
+            midi.addEvent (juce::MidiMessage::noteOn (1, NzDrumProcessor::firstMidiNote, 0.4f), 0);
+            const float level = peak (runBlock (p, midi), 0, blockSize);
+            p.setPlayHead (nullptr);
+
+            // El sample tiene pico 0.5: con 0.4 da 0.2, con el acento 0.5.
+            expectWithinAbsoluteError (level, 0.2f, 0.03f);
+        }
+
+        beginTest ("Un golpe grabado antes de cambiar de patron no saltea el patron nuevo");
+        {
+            NzDrumProcessor p;
+            prepare (p, tone);
+            p.setPatternLength (0, 4);
+            p.setStep (1, 0, 0, StepLevel::normal);
+            p.setRecording (true);
+
+            FakePlayHead head;
+            p.setPlayHead (&head);
+            const auto before = p.getTriggerCount (0);
+            const int hitAt = 4 * stepSamples - 1500;   // cae en el paso 1 de la vuelta siguiente
+
+            for (int start = 0; start < 4 * stepSamples + 3 * blockSize; start += blockSize)
+            {
+                head.ppq = (double) start / testSampleRate * (head.bpm / 60.0);
+                juce::MidiBuffer midi;
+
+                if (hitAt >= start && hitAt < start + blockSize)
+                    midi.addEvent (juce::MidiMessage::noteOn (1, NzDrumProcessor::firstMidiNote, 0.8f), hitAt - start);
+
+                runBlock (p, midi);
+
+                if (start == 0)
+                    p.selectPattern (1);   // entra al terminar el patrón 1
+            }
+
+            p.setPlayHead (nullptr);
+            expectEquals (p.getPlayingPattern(), 1);
+            expectEquals ((int) (p.getTriggerCount (0) - before), 2, "el golpe en vivo + el paso 1 del patron nuevo");
+        }
+
         folder.deleteRecursively();
     }
 
