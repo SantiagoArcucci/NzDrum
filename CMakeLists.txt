@@ -1,14 +1,14 @@
 cmake_minimum_required(VERSION 3.22)
 
-# Tiene que ir antes de project(): define la versión mínima de macOS del binario.
-set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Versión mínima de macOS")
+# Must come before project(): sets the minimum macOS version of the binary.
+set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS version")
 
 project(NzDrum VERSION 0.1.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# JUCE se descarga en la configuración, fijado a un tag exacto (como un lockfile).
+# JUCE is downloaded at configure time, pinned to an exact tag (like a lockfile).
 include(FetchContent)
 FetchContent_Declare(JUCE
     GIT_REPOSITORY https://github.com/juce-framework/JUCE.git
@@ -16,16 +16,16 @@ FetchContent_Declare(JUCE
     GIT_SHALLOW TRUE)
 FetchContent_MakeAvailable(JUCE)
 
-option(NZDRUM_COPY_AFTER_BUILD "Instalar el plugin en la carpeta del sistema al compilar" ON)
+option(NZDRUM_COPY_AFTER_BUILD "Install the plugin into the system folder after building" ON)
 
 juce_add_plugin(NzDrum
     COMPANY_NAME "Santiago Arcucci"
-    BUNDLE_ID com.santiagoarcucci.nzdrum   # sin espacios: Apple solo acepta letras, números, guiones y puntos
-    PLUGIN_MANUFACTURER_CODE Sarc   # 4 caracteres, al menos una mayúscula
-    PLUGIN_CODE Nzdm                # 4 caracteres, exactamente una mayúscula
-    FORMATS VST3 Standalone         # Standalone sirve para probar sin abrir el DAW
+    BUNDLE_ID com.santiagoarcucci.nzdrum   # no spaces: Apple only accepts letters, digits, hyphens and dots
+    PLUGIN_MANUFACTURER_CODE Sarc   # 4 characters, at least one uppercase
+    PLUGIN_CODE Nzdm                # 4 characters, exactly one uppercase
+    FORMATS VST3 Standalone         # Standalone is handy for testing without a DAW
     PRODUCT_NAME "NzDrum"
-    IS_SYNTH TRUE                   # es un instrumento: genera audio, no lo procesa
+    IS_SYNTH TRUE                   # an instrument: it generates audio, it doesn't process it
     NEEDS_MIDI_INPUT TRUE
     NEEDS_MIDI_OUTPUT FALSE
     VST3_CATEGORIES Instrument Drum
@@ -56,8 +56,8 @@ target_link_libraries(NzDrum
         juce::juce_recommended_lto_flags
         juce::juce_recommended_warning_flags)
 
-# ---- Pruebas del motor (sin DAW) ----
-option(NZDRUM_BUILD_TESTS "Compilar las pruebas del motor" ON)
+# ---- Engine tests (no DAW needed) ----
+option(NZDRUM_BUILD_TESTS "Build the engine tests" ON)
 
 if(NZDRUM_BUILD_TESTS)
     juce_add_console_app(NzDrumTests PRODUCT_NAME "NzDrumTests")

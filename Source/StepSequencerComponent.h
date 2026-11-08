@@ -2,14 +2,14 @@
 
 #include "PluginProcessor.h"
 
-// Los pasos del pad seleccionado, en el patrón elegido. Hasta 16 pasos van
-// en una fila; con 32, en dos.
-//   click         -> normal (si ya era normal, lo apaga)
-//   Shift + click -> acento
-//   Option + click (Alt) -> bajo
-//   rueda sobre un paso prendido -> le sube o baja un semitono
-// Los modificadores vienen dentro del mismo evento de mouse, así que el DAW no
-// puede "robarlos" como a veces pasa con atajos de teclado sueltos.
+// The selected pad's steps in the selected pattern. Up to 16 steps fit in one
+// row; 32 use two.
+//   click                -> normal (turns it off if it was already normal)
+//   Shift + click        -> accent
+//   Option + click (Alt) -> soft
+//   wheel over an active step -> raises or lowers it by a semitone
+// The modifiers come inside the same mouse event, so the DAW can't "steal"
+// them the way it sometimes does with standalone keyboard shortcuts.
 class StepSequencerComponent final : public juce::Component,
                                      public juce::SettableTooltipClient
 {
@@ -19,16 +19,16 @@ public:
     void setPad (int newPad);
     int getPad() const noexcept { return pad; }
 
-    // La llama el editor a 30 Hz: sigue el patrón elegido, su largo y el paso
-    // que suena.
+    // Called by the editor at 30 Hz: follows the selected pattern, its length
+    // and the playing step.
     void refresh();
 
     void paint (juce::Graphics&) override;
     void mouseDown (const juce::MouseEvent&) override;
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
 
-    // Qué nivel queda al hacer click con estos modificadores sobre un paso
-    // que tenía `current`. Es una función pura para poder probarla sola.
+    // The level a step that had `current` gets when clicked with these
+    // modifiers. A pure function so it can be tested on its own.
     static StepLevel levelAfterClick (StepLevel current, const juce::ModifierKeys& modifiers) noexcept;
 
 private:
@@ -39,12 +39,12 @@ private:
     int pad = 0;
     int pattern = 0;
     int length = NzDrumProcessor::defaultPatternLength;
-    int playingStep = -1;   // -1 si no suena este patrón
-    std::array<StepLevel, NzDrumProcessor::maxSteps> shownSteps {};   // lo último que se dibujó
+    int playingStep = -1;   // -1 if this pattern isn't playing
+    std::array<StepLevel, NzDrumProcessor::maxSteps> shownSteps {};   // what was drawn last
     std::array<int, NzDrumProcessor::maxSteps> shownPitches {};
 
-    // La rueda de un trackpad manda muchos movimientos chicos: se juntan
-    // hasta completar un semitono.
+    // A trackpad sends many small wheel movements: they add up until they
+    // make a semitone.
     float wheelAccumulator = 0.0f;
     int wheelStep = -1;
 

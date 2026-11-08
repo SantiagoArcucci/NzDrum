@@ -11,8 +11,8 @@ namespace
 StepSequencerComponent::StepSequencerComponent (NzDrumProcessor& processor)
     : nzProcessor (processor)
 {
-    setTooltip (juce::String::fromUTF8 ("Click: normal · Shift: acento · Option: bajo · "
-                                        "Rueda sobre un paso: cambia su semitono"));
+    setTooltip (juce::String::fromUTF8 ("Click: normal · Shift: accent · Option: soft · "
+                                        "Wheel over a step: changes its semitone"));
 }
 
 void StepSequencerComponent::setPad (int newPad)
@@ -26,12 +26,12 @@ void StepSequencerComponent::refresh()
     const int newPattern = nzProcessor.getSelectedPattern();
     const int newLength = nzProcessor.getPatternLength (newPattern);
 
-    // El indicador solo se muestra si suena el patrón que estamos viendo
-    // (mientras espera un cambio de patrón, suena el anterior).
+    // The playhead only shows if the pattern on screen is the one playing
+    // (while a pattern switch waits, the previous one keeps playing).
     const int current = nzProcessor.getPlayingPattern() == newPattern ? nzProcessor.getPlayingStep() : -1;
 
-    // Los pasos también pueden cambiar sin un click acá (pegar o borrar un
-    // patrón), así que comparamos lo que se ve con lo que hay.
+    // Steps can also change without a click here (pasting or clearing a
+    // pattern, recording), so we compare what is shown with what is stored.
     bool stepsChanged = false;
 
     for (int step = 0; step < NzDrumProcessor::maxSteps; ++step)
@@ -65,20 +65,20 @@ StepLevel StepSequencerComponent::levelAfterClick (StepLevel current, const juce
     else if (modifiers.isAltDown())
         target = StepLevel::low;
 
-    // Repetir el mismo click sobre el mismo nivel apaga el paso.
+    // Repeating the same click on the same level turns the step off.
     return current == target ? StepLevel::off : target;
 }
 
 juce::Rectangle<float> StepSequencerComponent::stepBounds (int step) const
 {
-    // Siempre 16 columnas, así un paso mide lo mismo con cualquier largo.
+    // Always 16 columns, so a step has the same size at any length.
     constexpr int columns = 16;
     const int rows = length > columns ? 2 : 1;
     const int row = step / columns;
     const int column = step % columns;
 
     auto area = getLocalBounds().withTrimmedLeft (labelWidth).reduced (0, 6).toFloat();
-    const float groupGap = 8.0f;   // separación cada 4 pasos, para leer los tiempos
+    const float groupGap = 8.0f;   // gap every 4 steps, to read the beats
     const float rowGap = 4.0f;
     const float stepWidth = (area.getWidth() - groupGap * 3.0f) / (float) columns;
     const float rowHeight = (area.getHeight() - rowGap * (float) (rows - 1)) / (float) rows;
@@ -105,7 +105,7 @@ void StepSequencerComponent::paint (juce::Graphics& g)
                 getLocalBounds().removeFromLeft (labelWidth).reduced (14, 0),
                 juce::Justification::centredLeft);
 
-    // Con 4 u 8 pasos, el resto de la fila queda apenas marcado.
+    // With 4 or 8 steps, the rest of the row is only outlined.
     for (int step = length; step < juce::jmin (16, NzDrumProcessor::maxSteps); ++step)
     {
         g.setColour (offColour.withAlpha (0.3f));
@@ -120,7 +120,7 @@ void StepSequencerComponent::paint (juce::Graphics& g)
         g.setColour (offColour);
         g.fillRoundedRectangle (bounds, 4.0f);
 
-        // La altura y la intensidad del color muestran el nivel.
+        // Height and colour intensity show the level.
         if (level != StepLevel::off)
         {
             const float amount = NzDrumProcessor::gainFor (level);
@@ -128,7 +128,7 @@ void StepSequencerComponent::paint (juce::Graphics& g)
             g.setColour (stepColour.withAlpha (0.35f + 0.65f * amount));
             g.fillRoundedRectangle (filled, 4.0f);
 
-            // El semitono, si tiene: "+3", "-5".
+            // The semitone, if any: "+3", "-5".
             const int pitch = nzProcessor.getStepPitch (pattern, pad, step);
 
             if (pitch != 0)
@@ -174,14 +174,14 @@ void StepSequencerComponent::mouseWheelMove (const juce::MouseEvent& event, cons
         wheelAccumulator = 0.0f;
     }
 
-    // Igual que en la forma de onda: el eje que más se movió (Shift + rueda
-    // llega como horizontal en macOS) y con scroll natural se invierte.
+    // Same as the waveform: the axis that moved most (Shift + wheel arrives
+    // as horizontal on macOS), flipped with natural scrolling.
     float delta = std::abs (wheel.deltaY) >= std::abs (wheel.deltaX) ? wheel.deltaY : wheel.deltaX;
 
     if (wheel.isReversed)
         delta = -delta;
 
-    // Una muesca de rueda de mouse es cerca de 0.1: un semitono por muesca.
+    // A mouse wheel notch is about 0.1: one semitone per notch.
     constexpr float perSemitone = 0.08f;
     wheelAccumulator += delta;
 

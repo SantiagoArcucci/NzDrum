@@ -17,8 +17,8 @@ NzDrumEditor::NzDrumEditor (NzDrumProcessor& p)
         pads.push_back (std::make_unique<PadComponent> (nzProcessor, pad));
         pads.back()->onSelect = [this] (int selected)
         {
-            // En modo cromático la selección queda fija en el pad fuente: los
-            // pads tocan notas, no eligen pad.
+            // In 16 levels mode the selection stays on the source pad: the pads
+            // play notes, they don't pick a pad.
             if (nzProcessor.getChromaticSource() < 0)
                 selectPad (selected);
         };
@@ -33,13 +33,13 @@ NzDrumEditor::NzDrumEditor (NzDrumProcessor& p)
     swingSlider.setTextValueSuffix (" %");
     swingSlider.setTextBoxStyle (juce::Slider::TextBoxRight, false, 64, 22);
     swingSlider.setColour (juce::Slider::thumbColourId, juce::Colour (0xffff8a3d));
-    swingSlider.setTooltip (juce::String::fromUTF8 ("Swing global: 50 % es recto, 75 % es el shuffle más marcado"));
+    swingSlider.setTooltip (juce::String ("Global swing: 50 % is straight, 75 % is the heaviest shuffle"));
     addAndMakeVisible (swingLabel);
     addAndMakeVisible (swingSlider);
     addAndMakeVisible (padEditor);
 
-    // Si se cierra y se vuelve a abrir la ventana con el modo cromático
-    // prendido, la selección vuelve al pad que está sonando en los 16.
+    // If the window is closed and reopened with 16 levels on, the selection
+    // goes back to the pad spread across the 16.
     const int chromaticSource = nzProcessor.getChromaticSource();
     selectPad (chromaticSource >= 0 ? chromaticSource : 0);
 
@@ -62,7 +62,7 @@ void NzDrumEditor::paint (juce::Graphics& g)
     juce::String info;
     info << (transport.playing ? "Play" : "Stop")
          << "   " << juce::String (transport.bpm, 1) << " BPM"
-         << "   negra " << juce::String (transport.ppq, 2);
+         << "   beat " << juce::String (transport.ppq, 2);
 
     g.setColour (juce::Colours::white.withAlpha (0.6f));
     g.setFont (juce::FontOptions (14.0f));
@@ -76,7 +76,7 @@ void NzDrumEditor::resized()
     sequencer.setBounds (area.removeFromBottom (sequencerHeight).reduced (14, 4));
     patternBar.setBounds (area.removeFromBottom (patternBarHeight).reduced (14, 2));
 
-    // El swing va en el medio del encabezado, entre el nombre y el transporte.
+    // Swing sits in the middle of the header, between the name and the transport.
     auto header = getLocalBounds().removeFromTop (headerHeight).reduced (20, 18);
     header.removeFromLeft (170);
     auto swingArea = header.removeFromLeft (230);
@@ -88,7 +88,7 @@ void NzDrumEditor::resized()
     const int cellWidth = grid.getWidth() / gridColumns;
     const int cellHeight = grid.getHeight() / rows;
 
-    // Disposición tipo MPC: el pad 1 abajo a la izquierda, el 16 arriba a la derecha.
+    // MPC-style layout: pad 1 bottom left, pad 16 top right.
     for (int pad = 0; pad < NzDrumProcessor::numPads; ++pad)
     {
         const int column = pad % gridColumns;
@@ -110,7 +110,7 @@ void NzDrumEditor::timerCallback()
     sequencer.refresh();
     padEditor.refresh();
 
-    // El encabezado muestra el transporte, que cambia todo el tiempo.
+    // The header shows the transport, which changes all the time.
     repaint (getLocalBounds().removeFromTop (headerHeight));
 }
 

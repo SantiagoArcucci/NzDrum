@@ -2,20 +2,21 @@
 
 #include "PluginProcessor.h"
 
-// La barra de patrones: 16 botones para elegir patrón y 4 para su largo.
-//   - El patrón elegido se pinta lleno. Si todavía suena el anterior
-//     (el cambio espera al final del patrón), ese parpadea con un borde.
-//   - Un puntito marca los patrones que tienen algún paso.
-//   - Click derecho en un patrón: copiar, pegar o borrar.
-//   - Rec: con el DAW en play, lo que se toca en los pads se graba en el
-//     patrón que suena (overdub).
+// The pattern bar: 16 buttons to pick a pattern and 4 for its length.
+//   - The selected pattern is drawn filled. If the previous one is still
+//     playing (the switch waits for the end of the pattern), it blinks with
+//     an outline.
+//   - A small dot marks patterns that have any steps.
+//   - Right click on a pattern: copy, paste or clear.
+//   - Rec: while the DAW plays, whatever is played on the pads is recorded
+//     into the playing pattern (overdub).
 class PatternBarComponent final : public juce::Component,
                                   public juce::SettableTooltipClient
 {
 public:
     explicit PatternBarComponent (NzDrumProcessor& processor);
 
-    // La llama el editor a 30 Hz.
+    // Called by the editor at 30 Hz.
     void refresh();
 
     void paint (juce::Graphics&) override;

@@ -2,21 +2,21 @@
 
 #include "PluginProcessor.h"
 
-// Un pad de la grilla: muestra el archivo cargado, suena con un click y acepta
-// archivos arrastrados. Los botones de abajo cargan un archivo o recorren la
-// carpeta del sample actual. Arriba a la derecha están mute (M) y solo (S).
-// Click derecho: copiar o pegar el pad (audio y ajustes).
+// One pad of the grid: shows the loaded file, plays on click and accepts
+// dropped files. The buttons at the bottom load a file or step through the
+// current sample's folder. Mute (M) and solo (S) sit at the top right.
+// Right click: copy or paste the pad (audio and settings).
 class PadComponent final : public juce::Component,
                            public juce::FileDragAndDropTarget
 {
 public:
     PadComponent (NzDrumProcessor& processor, int padIndex);
 
-    // La llama el editor a 30 Hz para refrescar nombre, estado y destello.
+    // Called by the editor at 30 Hz to refresh the name, state and flash.
     void refresh();
 
-    // Tocar un pad también lo selecciona, como en una MPC: la fila de pasos
-    // muestra el pad seleccionado.
+    // Playing a pad also selects it, like on an MPC: the step row shows the
+    // selected pad.
     std::function<void (int pad)> onSelect;
     void setSelected (bool shouldBeSelected);
 
@@ -39,9 +39,8 @@ private:
     juce::TextButton previousButton { "<" }, loadButton { "..." }, nextButton { ">" };
     std::unique_ptr<juce::FileChooser> chooser;
 
-    // Mute y solo son parámetros del host: los attachments mantienen el botón
-    // y el parámetro sincronizados en los dos sentidos (incluida la
-    // automatización).
+    // Mute and solo are host parameters: the attachments keep button and
+    // parameter in sync both ways (automation included).
     juce::TextButton muteButton { "M" }, soloButton { "S" };
     juce::AudioProcessorValueTreeState::ButtonAttachment muteAttachment, soloAttachment;
 
@@ -51,9 +50,9 @@ private:
     bool dragHover = false;
     bool selected = false;
     bool audible = true;
-    bool chromatic = false;   // modo cromático prendido: el pad muestra su semitono
+    bool chromatic = false;   // 16 levels on: the pad shows its semitone
     uint32_t lastTriggerCount = 0;
-    float flash = 0.0f;   // 1 al disparar, se apaga de a poco
+    float flash = 0.0f;   // 1 when triggered, fades out
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PadComponent)
 };

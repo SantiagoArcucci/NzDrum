@@ -5,7 +5,7 @@
 #include <atomic>
 #include <memory>
 
-// Un archivo de audio ya decodificado en memoria.
+// An audio file already decoded into memory.
 struct LoadedSample
 {
     juce::AudioBuffer<float> audio;
@@ -13,15 +13,16 @@ struct LoadedSample
     juce::File file;
 };
 
-// Pasa samples del hilo de carga al hilo de audio sin locks y sin que el audio
-// tenga que liberar memoria. Hay un SampleSlot por pad.
+// Hands samples from the loader thread to the audio thread without locks and
+// without the audio thread ever freeing memory. There is one SampleSlot per pad.
 //
-// Protocolo, con un dueño claro para cada puntero en cada momento:
-//   1. El hilo de carga llama a publish(): deja el sample nuevo en `pending`.
-//   2. El hilo de audio llama a acquire() al inicio de cada bloque: si hay uno
-//      nuevo, lo vuelve activo y manda el anterior a la cola de descarte.
-//   3. El hilo de UI llama a collectGarbage() de vez en cuando y borra lo
-//      descartado. Así el `delete` nunca corre en el hilo de audio.
+// Protocol, with a clear owner for every pointer at every moment:
+//   1. The loader thread calls publish(): it leaves the new sample in `pending`.
+//   2. The audio thread calls acquire() at the start of each block: if there is
+//      a new one, it becomes active and the previous one goes to the retired
+//      queue.
+//   3. The UI thread calls collectGarbage() now and then and deletes whatever
+//      was retired. That way `delete` never runs on the audio thread.
 class SampleSlot
 {
 public:
@@ -29,22 +30,22 @@ public:
 
     ~SampleSlot()
     {
-        // Se destruye con el plugin, cuando el audio ya no corre.
+        // Destroyed with the plugin, once audio is no longer running.
         delete pending.exchange (nullptr);
         delete active;
         collectGarbage();
     }
 
-    // Hilo de carga.
+    // Loader thread.
     void publish (std::unique_ptr<LoadedSample> sample)
     {
-        // exchange es atómico: si devuelve algo, el audio todavía no lo había
-        // tomado, así que es nuestro y lo podemos borrar acá sin riesgo.
+        // exchange is atomic: if it returns something, the audio thread had not
+        // taken it yet, so it is ours and we can safely delete it here.
         delete pending.exchange (sample.release(), std::memory_order_acq_rel);
     }
 
-    // Hilo de audio. Devuelve el sample activo (o nullptr si el pad está
-    // vacío) y avisa en `changed` si se acaba de reemplazar.
+    // Audio thread. Returns the active sample (or nullptr if the pad is
+    // empty) and reports in `changed` whether it was just replaced.
     const LoadedSample* acquire (bool& changed) noexcept
     {
         changed = false;
@@ -52,8 +53,8 @@ public:
         const bool hasNew = pending.load (std::memory_order_acquire) != nullptr;
         const bool canRetire = active == nullptr || retiredFifo.getFreeSpace() > 0;
 
-        // Si la cola de descarte estuviera llena, esperamos al próximo bloque
-        // antes que liberar memoria acá.
+        // If the retired queue were full, we wait for the next block rather
+        // than free memory here.
         if (hasNew && canRetire)
         {
             if (auto* fresh = pending.exchange (nullptr, std::memory_order_acq_rel))
@@ -72,7 +73,7 @@ public:
         return active;
     }
 
-    // Hilo de UI.
+    // UI thread.
     void collectGarbage()
     {
         const auto scope = retiredFifo.read (retiredFifo.getNumReady());
@@ -85,9 +86,9 @@ public:
 
 private:
     std::atomic<LoadedSample*> pending { nullptr };
-    LoadedSample* active = nullptr;     // solo lo toca el hilo de audio
+    LoadedSample* active = nullptr;     // only touched by the audio thread
 
-    // Cola de un productor (audio) y un consumidor (UI), sin locks.
+    // Lock-free queue with one producer (audio) and one consumer (UI).
     static constexpr int retiredCapacity = 8;
     juce::AbstractFifo retiredFifo { retiredCapacity };
     std::array<LoadedSample*, retiredCapacity> retired {};

@@ -5,8 +5,8 @@
 
 namespace
 {
-    // Tope de duración por sample, para que un archivo largo cargado por
-    // error no se coma la memoria. Para baterías sobra.
+    // Length cap per sample, so a long file loaded by mistake doesn't eat
+    // the memory. Plenty for drums.
     constexpr double maxSampleSeconds = 30.0;
 }
 
@@ -22,14 +22,14 @@ bool NzDrumProcessor::isValidPatternLength (int length) noexcept
 
 namespace
 {
-    // El número que haya en un texto escrito a mano ("-6 dB", "250ms",
-    // "1,5 st"): se ignoran las unidades y se acepta coma decimal.
+    // The number in a typed text ("-6 dB", "250ms", "1,5 st"): units are
+    // ignored and a decimal comma is accepted.
     float numberIn (const juce::String& text)
     {
         return text.retainCharacters ("0123456789.,-+").replaceCharacter (',', '.').getFloatValue();
     }
 
-    // Evita el "-0.00": cualquier valor que se redondee a cero se muestra 0.
+    // Avoids "-0.00": any value that rounds to zero is shown as 0.
     juce::String fixed (float value, int decimals)
     {
         const auto scale = std::pow (10.0f, (float) decimals);
@@ -55,7 +55,7 @@ juce::String NzDrumProcessor::panToText (float pan)
 
 float NzDrumProcessor::textToPan (const juce::String& text)
 {
-    // "30 L" / "30 R", o un número solo: negativo es izquierda ("-30").
+    // "30 L" / "30 R", or a bare number: negative is left ("-30").
     const float number = numberIn (text) / 100.0f;
     const float amount = juce::jlimit (0.0f, 1.0f, std::abs (number));
 
@@ -84,7 +84,7 @@ juce::String NzDrumProcessor::decayToText (float seconds)
     if (seconds >= maxDecaySeconds)
         return "off";
 
-    // Debajo de un segundo, en milisegundos: "250 ms" se lee mejor que "0.25 s".
+    // Under a second, in milliseconds: "250 ms" reads better than "0.25 s".
     if (seconds < 0.9995f)
         return juce::String (juce::roundToInt (seconds * 1000.0f)) + " ms";
 
@@ -109,22 +109,23 @@ juce::AudioProcessorValueTreeState::ParameterLayout NzDrumProcessor::createParam
                                                              juce::AudioParameterFloatAttributes().withLabel ("%")
                                                                  .withStringFromValueFunction ([] (float v, int) { return juce::String (v, 1); })));
 
-    // El patrón que suena, de 1 a 16. Automatizándolo en el DAW se encadenan
-    // patrones; el cambio espera a que termine el patrón actual.
+    // The playing pattern, 1 to 16. Automating it in the DAW chains patterns;
+    // the switch waits for the current pattern to finish.
     layout.add (std::make_unique<juce::AudioParameterInt> (juce::ParameterID { "pattern", 1 },
-                                                           juce::String::fromUTF8 ("Patrón"), 1, numPatterns, 1));
+                                                           juce::String ("Pattern"), 1, numPatterns, 1));
 
-    // El 1 de ParameterID es la versión: si algún día cambia un parámetro,
-    // los hosts lo usan para no confundirlo con el anterior.
+    // The 1 in ParameterID is the version: if a parameter ever changes, hosts
+    // use it to tell it apart from the old one. Display names can change
+    // freely; sessions find parameters by ID.
     const auto id = [] (int pad, const char* name) { return juce::ParameterID { paramId (pad, name), 1 }; };
-    const auto label = [] (int pad, const char* name) { return juce::String::fromUTF8 ("Pad ") + juce::String (pad + 1) + " " + juce::String::fromUTF8 (name); };
+    const auto label = [] (int pad, const char* name) { return "Pad " + juce::String (pad + 1) + " " + name; };
 
     using Float = juce::AudioParameterFloat;
     using Attributes = juce::AudioParameterFloatAttributes;
 
     for (int pad = 0; pad < numPads; ++pad)
     {
-        layout.add (std::make_unique<Float> (id (pad, "level"), label (pad, "Volumen"),
+        layout.add (std::make_unique<Float> (id (pad, "level"), label (pad, "Level"),
                                              juce::NormalisableRange<float> (minLevelDb, maxLevelDb, 0.1f, 2.0f), 0.0f,
                                              Attributes().withStringFromValueFunction ([] (float v, int) { return levelToText (v); })
                                                          .withValueFromStringFunction (textToLevel)));
@@ -139,18 +140,18 @@ juce::AudioProcessorValueTreeState::ParameterLayout NzDrumProcessor::createParam
                                              Attributes().withStringFromValueFunction ([] (float v, int) { return pitchToText (v); })
                                                          .withValueFromStringFunction (textToPitch)));
 
-        // Skew < 1: más resolución en los decays cortos, que es donde se nota.
+        // Skew < 1: more resolution for short decays, where it matters.
         layout.add (std::make_unique<Float> (id (pad, "decay"), label (pad, "Decay"),
                                              juce::NormalisableRange<float> (minDecaySeconds, maxDecaySeconds, 0.001f, 0.35f), maxDecaySeconds,
                                              Attributes().withStringFromValueFunction ([] (float v, int) { return decayToText (v); })
                                                          .withValueFromStringFunction (textToDecay)));
 
-        layout.add (std::make_unique<Float> (id (pad, "start"), label (pad, "Inicio"),
+        layout.add (std::make_unique<Float> (id (pad, "start"), label (pad, "Start"),
                                              juce::NormalisableRange<float> (0.0f, 1.0f, 0.0001f), 0.0f,
                                              Attributes().withStringFromValueFunction ([] (float v, int) { return fixed (v * 100.0f, 1) + " %"; })
                                                          .withValueFromStringFunction ([] (const juce::String& t) { return juce::jlimit (0.0f, 1.0f, numberIn (t) / 100.0f); })));
 
-        layout.add (std::make_unique<Float> (id (pad, "end"), label (pad, "Fin"),
+        layout.add (std::make_unique<Float> (id (pad, "end"), label (pad, "End"),
                                              juce::NormalisableRange<float> (0.0f, 1.0f, 0.0001f), 1.0f,
                                              Attributes().withStringFromValueFunction ([] (float v, int) { return fixed (v * 100.0f, 1) + " %"; })
                                                          .withValueFromStringFunction ([] (const juce::String& t) { return juce::jlimit (0.0f, 1.0f, numberIn (t) / 100.0f); })));
@@ -186,16 +187,16 @@ NzDrumProcessor::NzDrumProcessor()
     for (auto& length : patternLengths)
         length.store (defaultPatternLength, std::memory_order_relaxed);
 
-    formats.registerBasicFormats();   // WAV, AIFF, FLAC, Ogg y, en Mac, MP3/M4A vía CoreAudio
-    startTimerHz (10);                // recolector de samples descartados
+    formats.registerBasicFormats();   // WAV, AIFF, FLAC, Ogg and, on Mac, MP3/M4A through CoreAudio
+    startTimerHz (10);                // collects retired samples
 }
 
 NzDrumProcessor::~NzDrumProcessor()
 {
     stopTimer();
-    // Esperamos sin límite a que termine la carga en curso: cada carga está
-    // acotada (máximo 30 s de audio), y cortarla antes dejaría al hilo de
-    // carga escribiendo en memoria ya liberada.
+    // Wait without a timeout for the load in progress: each load is bounded
+    // (30 s of audio at most), and cutting it short would leave the loader
+    // thread writing to freed memory.
     loaderPool.removeAllJobs (true, -1);
 }
 
@@ -219,12 +220,12 @@ bool NzDrumProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
 }
 
 // ============================================================================
-// Hilo de audio
+// Audio thread
 // ============================================================================
 
 void NzDrumProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
-    // Reglas del hilo de audio: sin new/malloc, sin locks, sin disco, sin logs.
+    // Audio thread rules: no new/malloc, no locks, no disk, no logging.
     juce::ScopedNoDenormals noDenormals;
     buffer.clear();
 
@@ -243,8 +244,8 @@ void NzDrumProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
         hostPlaying.store (position->getIsPlaying(), std::memory_order_relaxed);
     }
 
-    // 1. Tomamos los samples nuevos que haya dejado el hilo de carga. Si un pad
-    //    cambió de sample, cortamos su voz: seguía leyendo el buffer viejo.
+    // 1. Pick up any new samples left by the loader thread. If a pad changed
+    //    sample, stop its voices: they were still reading the old buffer.
     for (int pad = 0; pad < numPads; ++pad)
     {
         bool changed = false;
@@ -256,13 +257,13 @@ void NzDrumProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
                     voice.playing = false;
     }
 
-    // Se lee una vez por bloque, igual que mute y solo.
+    // Read once per block, like mute and solo.
     const int chromatic = chromaticSource.load (std::memory_order_relaxed);
     const bool chromaticOn = juce::isPositiveAndBelow (chromatic, numPads);
 
-    // 2. Juntamos todos los disparos del bloque en una sola lista:
-    //    clicks de la UI (al inicio del bloque), pasos del secuenciador y
-    //    notas MIDI, cada uno con su muestra exacta.
+    // 2. Gather every trigger of the block into one list: UI clicks (at the
+    //    start of the block), sequencer steps and MIDI notes, each one at its
+    //    exact sample.
     for (int pad = 0; pad < numPads; ++pad)
     {
         const float velocity = uiTriggers[(size_t) pad].exchange (0.0f, std::memory_order_acq_rel);
@@ -284,7 +285,7 @@ void NzDrumProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
     }
     else
     {
-        // Detenido: el patrón pedido pasa a ser el actual de inmediato.
+        // Stopped: the requested pattern becomes the current one right away.
         sequencerRunning = false;
         currentPattern = getSelectedPattern();
         playingPattern.store (currentPattern, std::memory_order_relaxed);
@@ -312,15 +313,15 @@ void NzDrumProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
         }
     }
 
-    // Se graba solo con el secuenciador andando (DAW en play).
+    // Recording only happens while the sequencer runs (DAW playing).
     const bool recordingNow = recording.load (std::memory_order_relaxed) && sequencerRunning;
 
-    // Ordenamos por muestra con insertion sort: std::sort y std::stable_sort
-    // pueden reservar memoria, y la lista es corta. Es estable, así que dos
-    // disparos en la misma muestra mantienen el orden de llegada. Grabando,
-    // lo tocado en vivo va antes que el secuenciador para poder pisar el paso
-    // que suena en esa misma muestra; sin grabar, el orden de siempre (el
-    // golpe en vivo, que llega último, es el que queda sonando).
+    // Sort by sample offset with an insertion sort: std::sort and
+    // std::stable_sort may allocate, and the list is short. It is stable, so two
+    // triggers at the same sample keep their arrival order. While recording,
+    // live hits go before the sequencer so they can replace the step that plays
+    // at that same sample; otherwise, the usual order (the live hit arrives last
+    // and is the one left playing).
     const auto goesAfter = [recordingNow] (const TriggerEvent& a, const TriggerEvent& b)
     {
         return a.offset > b.offset || (recordingNow && a.offset == b.offset && ! a.live && b.live);
@@ -337,11 +338,11 @@ void NzDrumProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
         events[(size_t) (j + 1)] = event;
     }
 
-    // Mute y solo se leen una vez por bloque; el cambio se suaviza en renderVoices.
+    // Mute and solo are read once per block; renderVoices smooths the change.
     for (int pad = 0; pad < numPads; ++pad)
         blockAudible[(size_t) pad] = isPadAudible (pad);
 
-    // 3. Renderizamos hasta cada disparo, disparamos y seguimos.
+    // 3. Render up to each trigger, fire it, and carry on.
     int cursor = 0;
 
     for (int i = 0; i < numEvents; ++i)
@@ -356,14 +357,14 @@ void NzDrumProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
 
         renderVoices (buffer, cursor, event.offset);
         cursor = event.offset;
-        // En cromático, el pad tocado elige el semitono y el que suena es la
-        // fuente, con una voz propia para cada pad tocado.
+        // In chromatic mode the pad that was hit picks the semitone and the source
+        // pad is the one that sounds, with its own voice for each pad hit.
         if (event.chromatic)
             startVoice (numPads + event.pad, chromatic, event.velocity, (float) chromaticOffsetFor (event.pad));
         else
             startVoice (event.pad, event.pad, event.velocity, (float) event.semitones);
 
-        // El pad tocado destella (en cromático también, aunque suene otro).
+        // The pad that was hit flashes (in chromatic mode too, even if another sounds).
         triggerCounts[(size_t) event.pad].fetch_add (1, std::memory_order_relaxed);
     }
 
@@ -389,7 +390,7 @@ int NzDrumProcessor::patternStepFor (juce::int64 index) const noexcept
 
 StepLevel NzDrumProcessor::levelForVelocity (float velocity) noexcept
 {
-    // A mitad de camino entre los niveles (bajo 0.45, normal 0.75, acento 1).
+    // Halfway between the levels (soft 0.45, normal 0.75, accent 1).
     if (velocity < 0.6f)
         return StepLevel::low;
 
@@ -398,15 +399,15 @@ StepLevel NzDrumProcessor::levelForVelocity (float velocity) noexcept
 
 void NzDrumProcessor::recordLiveHit (const TriggerEvent& event, int eventIndex, int chromatic) noexcept
 {
-    // En 16 niveles se graba en el pad fuente, con el semitono del pad tocado.
+    // In 16 Levels, record on the source pad with the semitone of the pad hit.
     const int lane = event.chromatic ? chromatic : event.pad;
     const int semitones = event.chromatic ? chromaticOffsetFor (event.pad) : 0;
 
     if (! juce::isPositiveAndBelow (lane, numPads) || samplesPerQuarterNow <= 0.0)
         return;
 
-    // El paso más cercano, con swing: un golpe un poco antes o un poco después
-    // del paso cae en ese paso.
+    // The nearest step, with swing: a hit slightly before or slightly after the
+    // step lands on that step.
     const double time = blockStartPpq + event.offset / samplesPerQuarterNow;
     const auto base = (juce::int64) std::floor (time / stepLengthPpq);
     juce::int64 nearest = base;
@@ -419,9 +420,9 @@ void NzDrumProcessor::recordLiveHit (const TriggerEvent& event, int eventIndex, 
     setStep (currentPattern, lane, step, levelForVelocity (event.velocity));
     setStepPitch (currentPattern, lane, step, semitones);
 
-    // Si el paso todavía no sonó, el secuenciador no tiene que repetir el
-    // golpe que ya se escuchó en vivo. Si cae en este bloque, el paso viejo
-    // ya está en la lista; si cae más adelante, se saltea al llegar.
+    // If the step has not played yet, the sequencer must not repeat the hit that
+    // was already heard live. If it falls in this block, the old step is already
+    // in the list; if it falls later, it is skipped when reached.
     for (int i = eventIndex + 1; i < numEvents; ++i)
     {
         auto& later = events[(size_t) i];
@@ -446,29 +447,30 @@ void NzDrumProcessor::collectSequencerEvents (const juce::AudioPlayHead::Positio
         return;
     }
 
-    // El host nos dice en qué negra empieza el bloque (PPQ). Con el tempo
-    // sabemos cuántas muestras dura una negra, y de ahí dónde cae cada paso.
+    // The host tells us which quarter note the block starts on (PPQ). With the
+    // tempo we know how many samples a quarter note lasts, and from that where
+    // each step falls.
     const double samplesPerQuarter = currentSampleRate * 60.0 / *bpm;
     const double blockStart = *ppq;
     const double blockEnd = blockStart + numSamples / samplesPerQuarter;
 
-    // Si el transporte recién arranca o saltó (loop, click en la regla), nos
-    // realineamos a la grilla del host: el paso 1 del patrón cae en los
-    // compases. Un pedido de patrón pendiente se aplica en ese momento.
-    constexpr double jumpTolerance = 0.01;   // negras
+    // If the transport just started or jumped (loop, click on the ruler), we
+    // realign to the host grid: step 1 of the pattern lands on the bar lines.
+    // A pending pattern request is applied at that moment.
+    constexpr double jumpTolerance = 0.01;   // quarter notes
 
     if (! sequencerRunning || std::abs (blockStart - expectedBlockStart) > jumpTolerance)
     {
         currentPattern = getSelectedPattern();
         patternAnchor = 0;
-        skipStepIndex.fill (-1);   // lo grabado antes del salto ya no aplica
+        skipStepIndex.fill (-1);   // what was recorded before the jump no longer applies
     }
 
     sequencerRunning = true;
     expectedBlockStart = blockEnd;
 
-    // Swing: la semicorchea impar (0-based) de cada par se corre. A 50% cae
-    // en la mitad del par; a 75%, a tres cuartos.
+    // Swing: the odd sixteenth (0-based) of each pair is delayed. At 50 % it
+    // falls halfway through the pair; at 75 %, three quarters of the way.
     const float swing = juce::jlimit (minSwing, maxSwing, swingParameter->load (std::memory_order_relaxed));
     const double swingOffset = (swing / 100.0 - 0.5) * 2.0 * stepLengthPpq;
 
@@ -480,9 +482,9 @@ void NzDrumProcessor::collectSequencerEvents (const juce::AudioPlayHead::Positio
     const auto stepTime = [this] (juce::int64 index) { return stepTimeFor (index); };
     const auto positionInPattern = [this] (juce::int64 index) { return patternStepFor (index); };
 
-    // Recorremos las semicorcheas que caen dentro del bloque, en orden. El
-    // margen chico evita perder un paso que cae justo en el inicio por
-    // redondeo; el siguiente bloque no lo repite porque el fin es excluyente.
+    // Walk the sixteenths that fall inside the block, in order. The small
+    // margin avoids losing a step that falls right at the start because of
+    // rounding; the next block doesn't repeat it because the end is exclusive.
     constexpr double epsilon = 1.0e-9;
     auto index = (juce::int64) std::floor (blockStart / stepLengthPpq) - 1;
 
@@ -493,7 +495,7 @@ void NzDrumProcessor::collectSequencerEvents (const juce::AudioPlayHead::Positio
         if (time < blockStart - epsilon || time >= blockEnd)
             continue;
 
-        // Al terminar el patrón (vuelve al paso 1) entra el pedido pendiente.
+        // When the pattern ends (back to step 1) the pending request takes over.
         if (positionInPattern (index) == 0)
         {
             const int requested = getSelectedPattern();
@@ -503,7 +505,7 @@ void NzDrumProcessor::collectSequencerEvents (const juce::AudioPlayHead::Positio
                 currentPattern = requested;
                 patternAnchor = index;
 
-                // Lo grabado en el patrón anterior no saltea pasos del nuevo.
+                // What was recorded in the previous pattern doesn't skip steps of the new one.
                 skipStepIndex.fill (-1);
             }
         }
@@ -513,7 +515,7 @@ void NzDrumProcessor::collectSequencerEvents (const juce::AudioPlayHead::Positio
 
         for (int pad = 0; pad < numPads; ++pad)
         {
-            // Un golpe grabado antes de que llegue su paso ya se escuchó.
+            // A hit recorded before its step arrives has already been heard.
             if (skipStepIndex[(size_t) pad] >= 0 && index >= skipStepIndex[(size_t) pad])
             {
                 const bool skip = index == skipStepIndex[(size_t) pad];
@@ -538,8 +540,8 @@ void NzDrumProcessor::collectSequencerEvents (const juce::AudioPlayHead::Positio
         }
     }
 
-    // Para la UI: el último paso que empezó dentro del bloque (sin swing:
-    // alcanza para iluminarlo).
+    // For the UI: the last step that started inside the block (without swing:
+    // good enough to light it up).
     playingStep.store (positionInPattern ((juce::int64) std::floor (blockEnd / stepLengthPpq - epsilon)), std::memory_order_relaxed);
     playingPattern.store (currentPattern, std::memory_order_relaxed);
 }
@@ -551,8 +553,8 @@ void NzDrumProcessor::startVoice (int voiceIndex, int pad, float velocity, float
     if (sample == nullptr || sample->audio.getNumSamples() < 2)
         return;
 
-    // Los parámetros se leen una vez por disparo: mover una perilla afecta
-    // al próximo golpe, no al que ya está sonando.
+    // Parameters are read once per trigger: turning a knob affects the next hit,
+    // not the one already playing.
     const auto& params = padParameters[(size_t) pad];
     const auto lastIndex = (double) (sample->audio.getNumSamples() - 1);
 
@@ -564,16 +566,16 @@ void NzDrumProcessor::startVoice (int voiceIndex, int pad, float velocity, float
 
     auto& voice = voices[(size_t) voiceIndex];
 
-    // Si no venía sonando nada, la voz arranca directo en el estado de mute
-    // de su pad: no hay nada que suavizar y así el ataque queda intacto.
+    // If nothing was playing, the voice starts directly in its pad's mute state:
+    // there is nothing to smooth, and this keeps the attack intact.
     if (! voice.playing)
         audibleGains[(size_t) voiceIndex] = blockAudible[(size_t) pad] ? 1.0f : 0.0f;
 
     voice.sourcePad = pad;
 
-    // La interpolación lee la muestra siguiente, así que la voz tiene que
-    // terminar a más tardar en la última muestra: el inicio queda al menos una
-    // muestra antes del final, aunque el host ponga inicio = 1.
+    // Interpolation reads the next sample, so the voice has to end at the last
+    // sample at the latest: the start stays at least one sample before the end,
+    // even if the host sets start = 1.
     voice.position = juce::jmin (start * lastIndex, lastIndex - 1.0);
     voice.endPosition = juce::jlimit (voice.position + 1.0, lastIndex, end * lastIndex);
 
@@ -583,8 +585,8 @@ void NzDrumProcessor::startVoice (int voiceIndex, int pad, float velocity, float
     const float levelDb = params.level->load (std::memory_order_relaxed);
     const float gain = velocity * (levelDb <= minLevelDb ? 0.0f : juce::Decibels::decibelsToGain (levelDb));
 
-    // Pan tipo "balance": al centro los dos canales quedan como estaban, y
-    // hacia un lado se va bajando el otro.
+    // "Balance" style pan: at the centre both channels stay as they were, and
+    // towards one side the other one is turned down.
     const float pan = params.pan->load (std::memory_order_relaxed);
     voice.gainLeft = gain * juce::jmin (1.0f, 1.0f - pan);
     voice.gainRight = gain * juce::jmin (1.0f, 1.0f + pan);
@@ -605,13 +607,13 @@ void NzDrumProcessor::renderVoices (juce::AudioBuffer<float>& buffer, int startS
 
     const int numOutputChannels = buffer.getNumChannels();
 
-    // Un fundido de 2 ms al llegar al fin evita el "click" de cortar la onda
-    // en un punto que no es cero, algo común al recortar con el marcador.
+    // A 2 ms fade on reaching the end avoids the click of cutting the waveform
+    // at a non-zero point, which is common when trimming with the marker.
     const double fadeOutputSamples = 0.002 * currentSampleRate;
     constexpr float silence = 1.0e-4f;
 
-    // Mute y solo bajan o suben el volumen del pad en 5 ms, como el fader de
-    // una consola: cortar en seco haría un click.
+    // Mute and solo ramp the pad's volume down or up over 5 ms, like a mixing
+    // desk fader: cutting it abruptly would click.
     const float muteStep = (float) (1.0 / (0.005 * currentSampleRate));
 
     for (int v = 0; v < numVoices; ++v)
@@ -624,7 +626,7 @@ void NzDrumProcessor::renderVoices (juce::AudioBuffer<float>& buffer, int startS
 
         if (! voice.playing || sample == nullptr)
         {
-            audibleGain = audibleTarget;   // sin voz no hay nada que suavizar
+            audibleGain = audibleTarget;   // no voice, nothing to smooth
             continue;
         }
 
@@ -641,8 +643,8 @@ void NzDrumProcessor::renderVoices (juce::AudioBuffer<float>& buffer, int startS
                 break;
             }
 
-            // Interpolación lineal entre dos muestras: corrige diferencias de
-            // sample rate y permite el pitch.
+            // Linear interpolation between two samples: corrects sample rate
+            // differences and allows pitching.
             const float fraction = (float) (voice.position - index);
             const double remaining = (voice.endPosition - voice.position) / voice.increment;
             const float fade = (float) juce::jmin (1.0, remaining / fadeOutputSamples);
@@ -655,7 +657,7 @@ void NzDrumProcessor::renderVoices (juce::AudioBuffer<float>& buffer, int startS
 
             for (int channel = 0; channel < numOutputChannels; ++channel)
             {
-                // Un archivo mono suena igual en los dos canales.
+                // A mono file sounds the same on both channels.
                 const int sourceChannel = juce::jmin (channel, sourceChannels - 1);
                 const float a = source.getSample (sourceChannel, index);
                 const float b = source.getSample (sourceChannel, juce::jmin (index + 1, source.getNumSamples() - 1));
@@ -673,7 +675,7 @@ void NzDrumProcessor::renderVoices (juce::AudioBuffer<float>& buffer, int startS
 }
 
 // ============================================================================
-// Carga de samples (hilo de UI + hilo de carga)
+// Sample loading (UI thread + loader thread)
 // ============================================================================
 
 void NzDrumProcessor::loadSample (int pad, const juce::File& file)
@@ -706,25 +708,25 @@ void NzDrumProcessor::stepSample (int pad, int direction)
 
     loaderPool.addJob ([this, pad, direction, generation]
     {
-        // Si mientras esperaba se restauró un estado, este pedido ya no vale.
+        // If a state was restored while this was waiting, the request is stale.
         if (isSuperseded (pad, generation))
         {
             pendingLoads[(size_t) pad].fetch_sub (1);
             return;
         }
 
-        // Leemos el archivo actual recién acá, en el hilo de carga: si se hace
-        // click en "siguiente" varias veces seguidas, cada pedido parte del
-        // resultado del anterior y no del mismo archivo.
+        // Read the current file only here, on the loader thread: if "next" is
+        // clicked several times in a row, each request starts from the result of
+        // the previous one and not from the same file.
         const auto current = getPadFile (pad);
         const auto files = listAudioFilesNextTo (current);
         const int count = files.size();
         const int index = files.indexOf (current);
         int start = index;
 
-        // Si el archivo actual ya no está (un pad "Falta"), arrancamos desde
-        // donde estaría en el orden de la carpeta: "siguiente" da el primero
-        // que viene después de su nombre y "anterior" el último antes.
+        // If the current file is gone (a "Missing" pad), start from where it would
+        // be in the folder order: "next" gives the first one after its name and
+        // "previous" the last one before it.
         if (index < 0)
         {
             int position = 0;
@@ -735,9 +737,9 @@ void NzDrumProcessor::stepSample (int pad, int direction)
             start = direction > 0 ? position - 1 : position;
         }
 
-        // Si el vecino no se puede leer (archivo roto o vacío), seguimos en la
-        // misma dirección hasta encontrar uno que sí, sin pasar por todos más
-        // de una vez. Si no hay ninguno, el pad se queda como estaba.
+        // If the neighbour can't be read (broken or empty file), keep going in the
+        // same direction until one can, without visiting them all more than once.
+        // If none can, the pad stays as it was.
         const int lastOffset = index < 0 ? count : count - 1;
 
         for (int offset = 1; offset <= lastOffset; ++offset)
@@ -767,9 +769,9 @@ void NzDrumProcessor::finishLoad (int pad, const juce::File& file, std::unique_p
         {
             const juce::ScopedLock lock (padFilesLock);
 
-            // Una carga pedida antes de restaurar un estado no pisa la ruta
-            // restaurada: se descarta (el chequeo va bajo el lock para que no
-            // se cuele entre la restauración y la escritura).
+            // A load requested before a state was restored must not overwrite the
+            // restored path: it is dropped (the check happens under the lock so it can't
+            // slip in between the restore and the write).
             if (isSuperseded (pad, generation))
             {
                 pendingLoads[(size_t) pad].fetch_sub (1);
@@ -807,7 +809,7 @@ std::unique_ptr<LoadedSample> NzDrumProcessor::readFile (const juce::File& file)
     sample->sampleRate = reader->sampleRate;
     sample->file = file;
 
-    // Si la decodificación falla, el pad se queda con el sample que tenía.
+    // If decoding fails, the pad keeps the sample it had.
     if (! reader->read (&sample->audio, 0, length, 0, true, channels > 1))
         return nullptr;
 
@@ -816,18 +818,18 @@ std::unique_ptr<LoadedSample> NzDrumProcessor::readFile (const juce::File& file)
 
 juce::Array<juce::File> NzDrumProcessor::listAudioFilesNextTo (const juce::File& current) const
 {
-    // Alcanza con que exista la carpeta: un pad "Falta" también puede
-    // recorrerla para encontrar el archivo movido o uno parecido.
+    // It's enough that the folder exists: a "Missing" pad can also browse it to
+    // find the moved file or a similar one.
     if (current == juce::File() || ! current.getParentDirectory().isDirectory())
         return {};
 
     auto files = current.getParentDirectory().findChildFiles (juce::File::findFiles, false,
                                                               getSupportedWildcard());
 
-    // macOS deja archivos "._algo" en discos externos; no son audio.
+    // macOS leaves "._something" files on external drives; they aren't audio.
     files.removeIf ([] (const juce::File& f) { return f.isHidden() || f.getFileName().startsWith ("._"); });
 
-    // Orden "natural", como Finder: kick2 va antes que kick10.
+    // "Natural" order, like Finder: kick2 comes before kick10.
     std::sort (files.begin(), files.end(), [] (const juce::File& a, const juce::File& b)
     {
         return a.getFileName().compareNatural (b.getFileName()) < 0;
@@ -848,7 +850,7 @@ bool NzDrumProcessor::isPadAudible (int pad) const noexcept
 
     const auto& params = padParameters[(size_t) pad];
 
-    // Un pad muteado no suena aunque esté en solo.
+    // A muted pad stays silent even when soloed.
     if (params.mute->load (std::memory_order_relaxed) >= 0.5f)
         return false;
 
@@ -862,8 +864,8 @@ void NzDrumProcessor::setStep (int pattern, int pad, int step, StepLevel level) 
     {
         steps[stepIndex (pattern, pad, step)].store ((uint8_t) level, std::memory_order_relaxed);
 
-        // Un paso apagado no guarda semitono: si se vuelve a prender, arranca
-        // en la afinación del pad.
+        // A step that is off doesn't keep a semitone: when turned back on, it starts
+        // at the pad's tuning.
         if (level == StepLevel::off)
             stepPitches[stepIndex (pattern, pad, step)].store (0, std::memory_order_relaxed);
     }
@@ -912,8 +914,8 @@ void NzDrumProcessor::selectPattern (int pattern)
 {
     if (juce::isPositiveAndBelow (pattern, numPatterns))
     {
-        // Con gesto, para que el DAW lo grabe como un solo cambio cuando la
-        // automatización está en modo escritura.
+        // With a gesture, so the DAW records it as a single change when automation
+        // is in write mode.
         patternParameterObject->beginChangeGesture();
         patternParameterObject->setValueNotifyingHost (patternParameterObject->convertTo0to1 ((float) (pattern + 1)));
         patternParameterObject->endChangeGesture();
@@ -955,8 +957,8 @@ void NzDrumProcessor::pastePattern (int pattern) noexcept
     if (! patternClipboard.has_value() || ! juce::isPositiveAndBelow (pattern, numPatterns))
         return;
 
-    // Paso por paso: si el patrón está sonando, el audio puede ver un bloque
-    // con el pegado a medias, que no se nota.
+    // Step by step: if the pattern is playing, the audio thread may see one block
+    // with a half-done paste, which isn't noticeable.
     for (int pad = 0; pad < numPads; ++pad)
         for (int step = 0; step < maxSteps; ++step)
         {
@@ -989,7 +991,7 @@ void NzDrumProcessor::pastePad (int pad)
     if (padClipboard->file != juce::File() && padClipboard->file != getPadFile (pad))
         loadSample (pad, padClipboard->file);
 
-    // Con gesto, para que el DAW lo registre como un solo cambio por ajuste.
+    // With a gesture, so the DAW records a single change per adjustment.
     for (size_t i = 0; i < copiedPadParameters.size(); ++i)
     {
         if (auto* param = parameters.getParameter (paramId (pad, copiedPadParameters[i])))
@@ -1003,7 +1005,7 @@ void NzDrumProcessor::pastePad (int pad)
 
 int NzDrumProcessor::getSelectedPattern() const noexcept
 {
-    // El parámetro va de 1 a 16; acá contamos desde 0.
+    // The parameter goes from 1 to 16; here we count from 0.
     return juce::jlimit (0, numPatterns - 1, juce::roundToInt (patternParameter->load (std::memory_order_relaxed)) - 1);
 }
 
@@ -1060,13 +1062,13 @@ void NzDrumProcessor::restorePad (int pad, const juce::File& file)
 
     pendingLoads[(size_t) pad].fetch_add (1);
 
-    // Cada restauración invalida las cargas pedidas antes (y una restauración
-    // anterior que todavía no terminó).
+    // Each restore invalidates the loads requested before it (and an earlier
+    // restore that hasn't finished yet).
     uint32_t generation = 0;
 
-    // La ruta se anota ya, no cuando termine la carga: si el host guarda la
-    // sesión mientras los samples todavía se están cargando, tiene que
-    // guardar estas rutas y no las viejas (o ninguna).
+    // The path is recorded now, not when the load finishes: if the host saves
+    // the session while samples are still loading, it has to save these paths
+    // and not the old ones (or none).
     {
         const juce::ScopedLock lock (padFilesLock);
         generation = ++restoreGeneration[(size_t) pad];
@@ -1074,8 +1076,8 @@ void NzDrumProcessor::restorePad (int pad, const juce::File& file)
         padMissing[(size_t) pad] = false;
     }
 
-    // Por el mismo hilo de carga que el resto, así queda en orden con
-    // cualquier carga pedida antes.
+    // Through the same loader thread as everything else, so it stays in order
+    // with any load requested earlier.
     loaderPool.addJob ([this, pad, file, generation]
     {
         auto sample = file == juce::File() ? nullptr : readFile (file);
@@ -1086,8 +1088,8 @@ void NzDrumProcessor::restorePad (int pad, const juce::File& file)
             return;
         }
 
-        // Vacío o faltante: un sample sin audio deja el pad mudo (la voz no
-        // arranca con menos de 2 muestras) sin tocar el mecanismo del slot.
+        // Empty or missing: a sample with no audio leaves the pad silent (a voice
+        // doesn't start with fewer than 2 samples) without touching the slot logic.
         {
             const juce::ScopedLock lock (padFilesLock);
 
@@ -1108,12 +1110,12 @@ void NzDrumProcessor::restorePad (int pad, const juce::File& file)
 }
 
 // ============================================================================
-// Estado de la sesión
+// Session state
 // ============================================================================
 
 namespace
 {
-    // Versión del formato, por si algún día cambia.
+    // Format version, in case it ever changes.
     constexpr int stateVersion = 1;
     const juce::Identifier dataTag { "NzDrumData" };
 }
@@ -1125,8 +1127,8 @@ void NzDrumProcessor::getStateInformation (juce::MemoryBlock& destination)
     juce::ValueTree data (dataTag);
     data.setProperty ("version", stateVersion, nullptr);
 
-    // Cada patrón: su largo y los pasos de los 16 pads como 512 dígitos
-    // (0 apagado, 1 bajo, 2 normal, 3 acento). Compacto y fácil de leer.
+    // Each pattern: its length and the steps of the 16 pads as 512 digits
+    // (0 off, 1 soft, 2 normal, 3 accent). Compact and easy to read.
     for (int pattern = 0; pattern < numPatterns; ++pattern)
     {
         juce::String digits, pitches;
@@ -1140,8 +1142,7 @@ void NzDrumProcessor::getStateInformation (juce::MemoryBlock& destination)
             {
                 digits << juce::String::charToString ((juce::juce_wchar) ('0' + (int) getStep (pattern, pad, step)));
 
-                // El semitono como un dígito hexadecimal: -8 es "0", 0 es "8"
-                // y +7 es "f".
+                // The semitone as one hex digit: -8 is "0", 0 is "8" and +7 is "f".
                 const int pitch = getStepPitch (pattern, pad, step);
                 anyPitch = anyPitch || pitch != 0;
                 pitches << juce::String::toHexString (pitch - minStepPitch);
@@ -1153,7 +1154,7 @@ void NzDrumProcessor::getStateInformation (juce::MemoryBlock& destination)
         node.setProperty ("length", getPatternLength (pattern), nullptr);
         node.setProperty ("steps", digits, nullptr);
 
-        // Solo si hay alguno: las sesiones sin semitonos quedan como antes.
+        // Only if there is any: sessions without semitones stay as before.
         if (anyPitch)
             node.setProperty ("pitches", pitches, nullptr);
         data.appendChild (node, nullptr);
@@ -1188,7 +1189,7 @@ void NzDrumProcessor::setStateInformation (const void* data, int sizeInBytes)
     auto tree = juce::ValueTree::fromXml (*xml);
     const auto extra = tree.getChildWithName (dataTag);
 
-    // Lo nuestro no va en el árbol de parámetros: se regenera al guardar.
+    // Our own data doesn't live in the parameter tree: it's rebuilt on save.
     if (extra.isValid())
         tree.removeChild (extra, nullptr);
 
@@ -1220,7 +1221,7 @@ void NzDrumProcessor::setStateInformation (const void* data, int sizeInBytes)
                     setStep (index, i / maxSteps, i % maxSteps, (StepLevel) level);
             }
 
-            // Sesiones anteriores no tienen "pitches": quedan todos en 0.
+            // Older sessions have no "pitches": they all stay at 0.
             const auto pitches = node.getProperty ("pitches").toString();
 
             for (int i = 0; i < juce::jmin (pitches.length(), numPads * maxSteps); ++i)
@@ -1240,10 +1241,10 @@ void NzDrumProcessor::setStateInformation (const void* data, int sizeInBytes)
         }
     }
 
-    // Todos los pads, también los que no estaban en la sesión (si el host
-    // carga un estado sobre una instancia con samples, esos pads se vacían),
-    // y aunque la ruta parezca la misma: puede haber una carga pendiente en
-    // la cola que la cambiaría después.
+    // Every pad, including the ones that weren't in the session (if the host
+    // loads a state onto an instance with samples, those pads are emptied), and
+    // even if the path looks the same: there may be a pending load in the queue
+    // that would change it later.
     for (int pad = 0; pad < numPads; ++pad)
         restorePad (pad, files[(size_t) pad]);
 }
@@ -1270,14 +1271,14 @@ juce::String NzDrumProcessor::getSupportedWildcard() const
 
 double NzDrumProcessor::getTailLengthSeconds() const
 {
-    // Una nota puede seguir sonando hasta que termina su sample. El host usa
-    // este valor para no cortar el final al exportar o congelar una pista.
-    // Con el pitch hacia abajo el sample dura más, así que lo tenemos en cuenta.
+    // A note can keep sounding until its sample ends. The host uses this value
+    // so it doesn't cut the end when exporting or freezing a track. Pitching
+    // down makes the sample last longer, so we take that into account.
     //
-    // El modo cromático puede tocar cualquier pad hasta 8 semitonos más grave.
-    // Lo contamos siempre, no solo con el modo prendido: el host no vuelve a
-    // preguntar al prender o apagar el modo, y una nota grave puede seguir
-    // sonando después de apagarlo. Pasarse un poco solo alarga el export.
+    // Chromatic mode can play any pad up to 8 semitones lower. We always count
+    // it, not only with the mode on: the host doesn't ask again when the mode is
+    // toggled, and a low note can keep sounding after it is turned off.
+    // Overshooting a little only makes the export a bit longer.
     const double lowestChromatic = (double) juce::jmin (0, chromaticOffsetFor (0));
     double longest = 0.0;
 
