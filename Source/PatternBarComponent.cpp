@@ -14,13 +14,13 @@ namespace
 PatternBarComponent::PatternBarComponent (NzDrumProcessor& processor)
     : nzProcessor (processor)
 {
-    setTooltip (juce::String::fromUTF8 ("Click derecho en un patrón: copiar, pegar o borrar"));
+    setTooltip (juce::String ("Right click on a pattern: copy, paste or clear"));
 
     recButton.setClickingTogglesState (true);
     recButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xffd9534f));
-    recButton.setTooltip (juce::String::fromUTF8 ("Grabar: con el DAW en play, lo que tocás en los pads (click o MIDI) "
-                                                  "queda en el paso más cercano del patrón que suena, reemplazando lo que había. "
-                                                  "En 16 niveles se graba el pad fuente con su semitono."));
+    recButton.setTooltip (juce::String ("Record: while the DAW plays, pad hits (click or MIDI) land on the nearest "
+                                              "step of the playing pattern, replacing what was there. "
+                                              "In 16 Levels the source pad is recorded with its semitone."));
     recButton.onClick = [this] { nzProcessor.setRecording (recButton.getToggleState()); };
     addAndMakeVisible (recButton);
 }
@@ -63,7 +63,7 @@ void PatternBarComponent::refresh()
     for (int pattern = 0; pattern < NzDrumProcessor::numPatterns; ++pattern)
         update (hasSteps[(size_t) pattern], patternHasSteps (pattern));
 
-    // Parpadeo de ~2 Hz para el patrón que sigue sonando mientras espera.
+    // ~2 Hz blink for the pattern that keeps playing while the switch waits.
     if (++blinkCounter >= 8)
     {
         blinkCounter = 0;
@@ -99,7 +99,7 @@ void PatternBarComponent::paint (juce::Graphics& g)
 {
     g.setColour (textColour.withAlpha (0.6f));
     g.setFont (juce::FontOptions (13.0f, juce::Font::bold));
-    g.drawText (juce::String::fromUTF8 ("Patrón"), getLocalBounds().removeFromLeft (labelWidth).withTrimmedLeft (recWidth).reduced (8, 0),
+    g.drawText (juce::String ("Pattern"), getLocalBounds().removeFromLeft (labelWidth).withTrimmedLeft (recWidth).reduced (8, 0),
                 juce::Justification::centredLeft);
 
     g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
@@ -128,9 +128,9 @@ void PatternBarComponent::paint (juce::Graphics& g)
         }
     }
 
-    // Rótulo para que el largo no se confunda con los patrones.
+    // A label so the length isn't mistaken for patterns.
     g.setColour (textColour.withAlpha (0.6f));
-    g.drawText ("Pasos", getLocalBounds().toFloat().withTrimmedRight (lengthAreaWidth).removeFromRight (lengthLabelWidth),
+    g.drawText ("Steps", getLocalBounds().toFloat().withTrimmedRight (lengthAreaWidth).removeFromRight (lengthLabelWidth),
                 juce::Justification::centred);
 
     for (int i = 0; i < (int) lengths.size(); ++i)
@@ -177,11 +177,11 @@ void PatternBarComponent::mouseDown (const juce::MouseEvent& event)
 void PatternBarComponent::showPatternMenu (int pattern)
 {
     juce::PopupMenu menu;
-    menu.addSectionHeader (juce::String::fromUTF8 ("Patrón ") + juce::String (pattern + 1));
-    menu.addItem ("Copiar", [this, pattern] { nzProcessor.copyPattern (pattern); });
-    menu.addItem ("Pegar", nzProcessor.hasCopiedPattern(), false, [this, pattern] { nzProcessor.pastePattern (pattern); refresh(); });
+    menu.addSectionHeader (juce::String ("Pattern ") + juce::String (pattern + 1));
+    menu.addItem ("Copy", [this, pattern] { nzProcessor.copyPattern (pattern); });
+    menu.addItem ("Paste", nzProcessor.hasCopiedPattern(), false, [this, pattern] { nzProcessor.pastePattern (pattern); refresh(); });
     menu.addSeparator();
-    menu.addItem ("Borrar todos los pasos", [this, pattern] { nzProcessor.clearPattern (pattern); refresh(); });
+    menu.addItem ("Clear all steps", [this, pattern] { nzProcessor.clearPattern (pattern); refresh(); });
 
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this)
                                                   .withTargetScreenArea (localAreaToGlobal (patternBounds (pattern).toNearestInt())));

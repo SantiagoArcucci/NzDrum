@@ -11,26 +11,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Cache de JUCE
+      - name: Cache JUCE
         uses: actions/cache@v4
         with:
           path: build/_deps
           key: juce-${{ runner.os }}-${{ hashFiles('CMakeLists.txt') }}
 
-      - name: Configurar (binario universal arm64 + x86_64)
+      - name: Configure (universal arm64 + x86_64 binary)
         run: >
           cmake -S . -B build
           -DCMAKE_BUILD_TYPE=Release
           -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
           -DNZDRUM_COPY_AFTER_BUILD=OFF
 
-      - name: Compilar VST3 y pruebas
+      - name: Build VST3 and tests
         run: cmake --build build --target NzDrum_VST3 NzDrumTests --parallel 4
 
-      - name: Correr pruebas del motor
+      - name: Run engine tests
         run: ./build/NzDrumTests_artefacts/Release/NzDrumTests
 
-      - name: Validar con pluginval
+      - name: Validate with pluginval
         run: |
           curl -sSL -o pluginval.zip https://github.com/Tracktion/pluginval/releases/latest/download/pluginval_macOS.zip
           unzip -q pluginval.zip
@@ -40,7 +40,7 @@ jobs:
             --skip-gui-tests \
             --validate build/NzDrum_artefacts/Release/VST3/NzDrum.vst3
 
-      - name: Subir el VST3
+      - name: Upload the VST3
         uses: actions/upload-artifact@v4
         with:
           name: NzDrum-VST3-macOS

@@ -3,9 +3,9 @@
 #include <juce_audio_utils/juce_audio_utils.h>
 #include "PluginProcessor.h"
 
-// Forma de onda del pad seleccionado con dos marcadores, inicio y fin, que se
-// arrastran con el mouse. Los marcadores son parámetros del host, así que
-// también se mueven solos si el DAW los automatiza.
+// Waveform of the selected pad with two markers, start and end, that can be
+// dragged with the mouse (or moved with the wheel). The markers are host
+// parameters, so they also move on their own when the DAW automates them.
 class WaveformView final : public juce::Component,
                            private juce::ChangeListener
 {
@@ -14,7 +14,7 @@ public:
     ~WaveformView() override;
 
     void setPad (int pad);
-    void refresh();   // la llama el editor a 30 Hz: detecta si cambió el archivo
+    void refresh();   // called by the editor at 30 Hz: detects a file change
 
     void paint (juce::Graphics&) override;
     void mouseDown (const juce::MouseEvent&) override;
@@ -42,15 +42,15 @@ private:
     float start = 0.0f, end = 1.0f;
     Marker dragging = Marker::none;
 
-    // Conectan cada marcador con su parámetro: avisan al host del gesto
-    // (para que grabe automatización) y nos avisan si el host lo cambia.
+    // Connect each marker to its parameter: they tell the host about the
+    // gesture (so it can record automation) and tell us when the host changes it.
     std::unique_ptr<juce::ParameterAttachment> startAttachment, endAttachment;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (WaveformView)
 };
 
-// Panel inferior: forma de onda más perillas de volumen, pan, pitch y decay
-// del pad seleccionado, y el botón del modo cromático ("16 niveles").
+// Bottom panel: waveform plus level, pan, pitch and decay knobs for the
+// selected pad, and the 16 levels (chromatic) mode button.
 class PadEditorComponent final : public juce::Component
 {
 public:
@@ -73,7 +73,7 @@ private:
     NzDrumProcessor& nzProcessor;
     WaveformView waveform;
     std::array<Knob, 4> knobs;
-    juce::TextButton chromaticButton { "16 niveles" };
+    juce::TextButton chromaticButton { "16 Levels" };
     int currentPad = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PadEditorComponent)

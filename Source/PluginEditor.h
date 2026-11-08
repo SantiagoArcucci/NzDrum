@@ -6,8 +6,8 @@
 #include "PadEditorComponent.h"
 #include "PatternBarComponent.h"
 
-// La ventana del plugin. Vive en el hilo de UI y nunca toca el audio
-// directamente: le pide cosas al procesador y lee lo que este publica.
+// The plugin window. It lives on the UI thread and never touches audio
+// directly: it asks the processor for things and reads what it publishes.
 class NzDrumEditor final : public juce::AudioProcessorEditor,
                            private juce::Timer
 {
@@ -18,7 +18,7 @@ public:
     void resized() override;
 
 private:
-    // Polling a 30 Hz, parecido a un requestAnimationFrame más lento.
+    // Polls at 30 Hz, a bit like a slower requestAnimationFrame.
     void timerCallback() override;
     void selectPad (int pad);
 
@@ -29,7 +29,7 @@ private:
     PadEditorComponent padEditor { nzProcessor };
     juce::TooltipWindow tooltips { this };
 
-    // Swing global, en el encabezado.
+    // Global swing, in the header.
     juce::Label swingLabel { {}, "Swing" };
     juce::Slider swingSlider { juce::Slider::LinearHorizontal, juce::Slider::TextBoxRight };
     juce::AudioProcessorValueTreeState::SliderAttachment swingAttachment { nzProcessor.getParameters(), "swing", swingSlider };

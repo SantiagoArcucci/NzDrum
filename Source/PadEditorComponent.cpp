@@ -54,8 +54,8 @@ void WaveformView::refresh()
     {
         shownFile = file;
 
-        // AudioThumbnail lee el archivo en su propio hilo y nos avisa
-        // (changeListenerCallback) a medida que tiene datos para dibujar.
+        // AudioThumbnail reads the file on its own thread and notifies us
+        // (changeListenerCallback) as it gets data to draw.
         if (file.existsAsFile())
             thumbnail.setSource (new juce::FileInputSource (file));
         else
@@ -102,7 +102,7 @@ void WaveformView::paint (juce::Graphics& g)
     {
         g.setColour (textColour.withAlpha (0.4f));
         g.setFont (juce::FontOptions (13.0f));
-        g.drawText (juce::String::fromUTF8 ("Cargá un sample para ver su forma de onda"),
+        g.drawText (juce::String ("Load a sample to see its waveform"),
                     getLocalBounds(), juce::Justification::centred);
         return;
     }
@@ -110,7 +110,7 @@ void WaveformView::paint (juce::Graphics& g)
     g.setColour (waveColour);
     thumbnail.drawChannels (g, getLocalBounds().reduced (0, 6), 0.0, thumbnail.getTotalLength(), 1.0f);
 
-    // Lo que queda fuera de inicio y fin se oscurece: no va a sonar.
+    // Whatever lies outside start and end is darkened: it won't play.
     g.setColour (juce::Colours::black.withAlpha (0.55f));
     g.fillRect (bounds.withRight (xFor (start)));
     g.fillRect (bounds.withLeft (xFor (end)));
@@ -123,7 +123,7 @@ void WaveformView::paint (juce::Graphics& g)
         g.drawLine (x, 0.0f, x, bounds.getHeight(), 2.0f);
     }
 
-    // Una "banderita" en cada marcador para que se vea dónde agarrarlo.
+    // A small "flag" on each marker shows where to grab it.
     g.fillRect (xFor (start), 0.0f, 8.0f, 8.0f);
     g.fillRect (xFor (end) - 8.0f, bounds.getHeight() - 8.0f, 8.0f, 8.0f);
 }
@@ -155,7 +155,7 @@ void WaveformView::mouseDrag (const juce::MouseEvent& event)
 
 void WaveformView::moveMarker (Marker marker, float value)
 {
-    // Inicio no puede pasar a fin ni al revés.
+    // Start can't pass end, and vice versa.
     constexpr float minimumGap = 0.001f;
 
     if (marker == Marker::start)
@@ -172,10 +172,10 @@ void WaveformView::mouseWheelMove (const juce::MouseEvent& event, const juce::Mo
         return;
     }
 
-    // Rueda sola mueve el inicio; con Shift, el fin. En macOS, Shift + rueda
-    // llega como scroll horizontal (deltaX), así que tomamos el eje que más
-    // se movió. Con scroll "natural" el sentido se invierte, como en las
-    // perillas de JUCE: girar hacia arriba siempre mueve a la derecha.
+    // The wheel alone moves the start; with Shift, the end. On macOS,
+    // Shift + wheel arrives as horizontal scroll (deltaX), so we take the axis
+    // that moved most. With "natural" scrolling the direction is flipped, as
+    // JUCE sliders do: scrolling up always moves to the right.
     float delta = std::abs (wheel.deltaY) >= std::abs (wheel.deltaX) ? wheel.deltaY : wheel.deltaX;
 
     if (wheel.isReversed)
@@ -184,8 +184,8 @@ void WaveformView::mouseWheelMove (const juce::MouseEvent& event, const juce::Mo
     if (std::abs (delta) < 1.0e-6f)
         return;
 
-    // Una muesca de rueda (~0.1) mueve cerca de un 1 % del sample; con Alt,
-    // diez veces más fino para ajustar el ataque de un golpe.
+    // One wheel notch (~0.1) moves about 1 % of the sample; with Alt, ten
+    // times finer, for trimming the attack of a hit.
     const float speed = event.mods.isAltDown() ? 0.01f : 0.1f;
     const auto marker = event.mods.isShiftDown() ? Marker::end : Marker::start;
     const float current = marker == Marker::start ? start : end;
@@ -214,7 +214,7 @@ PadEditorComponent::PadEditorComponent (NzDrumProcessor& processor)
     addAndMakeVisible (waveform);
 
     const std::array<std::pair<const char*, const char*>, 4> names { {
-        { "level", "Volumen" }, { "pan", "Pan" }, { "pitch", "Pitch" }, { "decay", "Decay" }
+        { "level", "Level" }, { "pan", "Pan" }, { "pitch", "Pitch" }, { "decay", "Decay" }
     } };
 
     for (size_t i = 0; i < knobs.size(); ++i)
@@ -233,9 +233,9 @@ PadEditorComponent::PadEditorComponent (NzDrumProcessor& processor)
     chromaticButton.setClickingTogglesState (true);
     chromaticButton.setColour (juce::TextButton::buttonOnColourId, accentColour);
     chromaticButton.setColour (juce::TextButton::textColourOnId, juce::Colours::black);
-    chromaticButton.setTooltip (juce::String::fromUTF8 ("Reparte el pad seleccionado en los 16 pads, un semitono por pad "
-                                                        "(el pad 9 es la afinación original). Solo para tocar en vivo: "
-                                                        "el secuenciador sigue igual."));
+    chromaticButton.setTooltip (juce::String ("Spreads the selected pad across the 16 pads, one semitone apart "
+                                                    "(pad 9 is the original pitch). For live playing and recording: "
+                                                    "existing steps play as before."));
     chromaticButton.onClick = [this]
     {
         nzProcessor.setChromaticSource (chromaticButton.getToggleState() ? currentPad : -1);
@@ -247,8 +247,8 @@ void PadEditorComponent::refresh()
 {
     waveform.refresh();
 
-    // El modo vive en el procesador: si se cierra y se abre la ventana, el
-    // botón muestra lo que de verdad está pasando.
+    // The mode lives in the processor: if the window is closed and reopened,
+    // the button shows what is really going on.
     chromaticButton.setToggleState (nzProcessor.getChromaticSource() >= 0, juce::dontSendNotification);
 }
 
@@ -257,8 +257,8 @@ void PadEditorComponent::setPad (int pad)
     currentPad = pad;
     waveform.setPad (pad);
 
-    // Cada attachment conecta una perilla con el parámetro del pad elegido.
-    // Al cambiar de pad se reemplazan; el anterior se desconecta solo.
+    // Each attachment connects a knob to the selected pad's parameter. They
+    // are replaced when the pad changes; the old one disconnects itself.
     for (auto& knob : knobs)
     {
         knob.attachment.reset();

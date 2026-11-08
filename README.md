@@ -1,73 +1,75 @@
 # NzDrum
 
-Drum machine VST3 de 16 pads con secuenciador por pasos y tres niveles de dinámica por paso (bajo, normal y acento). Hecha en C++ con [JUCE](https://juce.com).
+*English · [Español](README.es.md)*
 
-> Estado: **etapa 6**. Sampler de 16 pads con un banco de 16 patrones de 4, 8, 16 o 32 pasos, tres niveles por paso y swing global, sincronizado con el host. Por pad: volumen, pan, pitch, decay, inicio y fin del sample, mute y solo. Los patrones se encadenan automatizando el parámetro "Patrón" en el DAW, y todo se guarda con la sesión.
+A 16-pad VST3 drum machine with a step sequencer and three dynamic levels per step (soft, normal and accent). Built in C++ with [JUCE](https://juce.com).
 
-## Cómo se usa
+> A 16-pad sampler with a bank of 16 patterns of 4, 8, 16 or 32 steps, three levels and a semitone per step, global swing and live recording, synced to the host. Per pad: level, pan, pitch, decay, sample start and end, mute and solo. A chromatic "16 Levels" mode plays one sample across all 16 pads. Patterns are chained by automating the "Pattern" parameter in the DAW, and everything is saved with the session.
 
-- **Cargar un sample:** arrastrá un archivo de audio (WAV, AIFF, FLAC, Ogg o MP3) sobre un pad, o usá el botón `...`.
-- **Recorrer la carpeta:** con `<` y `>` pasás al archivo anterior o siguiente de la misma carpeta, en el mismo orden que Finder. Al llegar al final vuelve al principio.
-- **Secuenciar:** tocar un pad lo selecciona, y abajo aparece la fila de 16 pasos de ese pad. Click pone un paso en nivel normal, Shift-click en acento y Option-click en bajo; repetir el mismo click lo apaga. La rueda del mouse sobre un paso prendido le cambia el semitono (de −8 a +7, el mismo rango que los 16 niveles); el número aparece en el paso. El secuenciador sigue el play y el tempo del DAW.
-- **Patrones:** la fila "Patrón" elige uno de los 16 patrones del banco; los que tienen algún paso llevan un puntito. Si cambiás de patrón mientras suena, el cambio espera a que termine el patrón actual (el que sigue sonando parpadea). Con el DAW detenido, cambia enseguida.
-- **Encadenar patrones (canción):** el patrón elegido es el parámetro del host **Patrón** (1 a 16). En Studio Pro, abrí la automatización de la pista de NzDrum, elegí "Patrón" y dibujá en qué patrón está cada tramo. También podés grabarlo: con la automatización en modo escritura, los clicks en los botones de patrón quedan grabados. El cambio entra al terminar el patrón que suena, así que conviene poner cada cambio sobre la línea de compás o un poco antes. Si cae apenas después, espera una vuelta entera del patrón.
-- **Largo:** los botones "Pasos" ponen el largo del patrón elegido en 4, 8, 16 o 32 semicorcheas. Con 32, los pasos se muestran en dos filas.
-- **Copiar, pegar y borrar patrones:** click derecho (o Control-click) en un botón de patrón. Copiar guarda una foto de los pasos y el largo; borrar apaga todos los pasos y vuelve a 16.
-- **Grabar en vivo:** prendé `Rec` (a la izquierda de la barra de patrones) y dale play en el DAW. Cada golpe de pad, con click o MIDI, queda en el paso más cercano del patrón que suena y reemplaza lo que había (overdub). La velocity elige el nivel; en los pads, Shift-click graba acento y Option-click bajo. Con `16 niveles` prendido se graba el pad fuente con el semitono del pad tocado.
-- **Tocar un pad cromáticamente ("16 niveles"):** seleccioná un pad y prendé `16 niveles`, al lado de las perillas. Los 16 pads tocan ese sample, un semitono por pad: el pad 9 en su afinación original, del 1 al 8 más grave y del 10 al 16 más agudo. Funciona con clicks y con MIDI; el secuenciador sigue tocando los pads normales. Mientras está prendido, tocar un pad no cambia la selección.
-- **Copiar un pad en otro:** click derecho en un pad. Se copian el audio y los ajustes (volumen, pan, pitch, decay, inicio y fin), pero no el mute ni el solo ni los pasos.
-- **Swing:** el control del encabezado vale para todo el banco. 50 % es recto y 75 % es el shuffle más marcado; corre las semicorcheas pares (2, 4, 6...), como en una MPC. Es un parámetro del host.
-- **Ajustar el pad seleccionado:** abajo de todo está la forma de onda del sample, con dos marcadores naranjas que se arrastran: dónde empieza y dónde termina. También se mueven con la rueda del mouse sobre la forma de onda: rueda sola para el inicio, con Shift para el fin y con Alt más fino. Al lado, perillas de volumen, pan, pitch (±24 semitonos) y decay (`off` = suena entero). El inicio y el fin se guardan como proporción del archivo, así que se mantienen al pasar a otro sample con `<` y `>`. Doble click en una perilla la vuelve a su valor inicial. En el cuadro de texto de cada perilla se puede escribir un valor, con o sin unidad (`-6 dB`, `250 ms`, `30 L`).
-- **Mute y solo:** cada pad tiene botones `M` y `S`. Un pad muteado no suena por ningún lado, ni con el secuenciador, ni por MIDI, ni con click. Si hay pads en solo, suenan solo esos (salvo que además estén muteados). El cambio se suaviza en 5 ms para que no haga click.
-- **Automatizar:** todos los ajustes por pad (incluidos mute y solo) son parámetros del host, así que se pueden automatizar en Studio Pro.
-- **Guardar:** al guardar la sesión de Studio Pro se guardan los 16 patrones con sus largos, el swing, el patrón elegido, los ajustes de cada pad y la **ruta** del sample de cada pad (el audio no se copia adentro de la sesión). Si al abrir la sesión un archivo ya no está, el pad muestra "Falta: nombre" en rojo y queda mudo; con `...`, `<` o `>` lo volvés a cargar. El portapapeles no se guarda.
-- **Tocar:** click en el pad, o notas MIDI. El pad 1 es la nota 36 (C1 en Studio Pro) y el 16 es la 51 (D#2). La grilla sigue la disposición de una MPC: el pad 1 abajo a la izquierda.
+## How to use it
 
-## Requisitos (macOS)
+- **Load a sample:** drag an audio file (WAV, AIFF, FLAC, Ogg or MP3) onto a pad, or use the `...` button.
+- **Browse the folder:** `<` and `>` step to the previous or next file in the same folder, in the same order as Finder. At the end it wraps back to the start.
+- **Sequence:** clicking a pad selects it, and the row of 16 steps for that pad appears below. Click sets a step to normal, Shift-click to accent and Option-click to soft; repeating the same click turns it off. The mouse wheel over an active step changes its semitone (from −8 to +7, the same range as 16 Levels); the number shows on the step. The sequencer follows the DAW's transport and tempo.
+- **Patterns:** the "Pattern" row picks one of the 16 patterns in the bank; patterns that have any step show a dot. If you switch patterns while playing, the switch waits until the current pattern ends (the one coming next blinks). With the DAW stopped, it switches right away.
+- **Chain patterns (song mode):** the selected pattern is the host parameter **Pattern** (1 to 16). In Studio Pro, open the automation of the NzDrum track, choose "Pattern" and draw which pattern each section uses. You can also record it: with automation in write mode, clicks on the pattern buttons are recorded. A switch takes effect when the playing pattern ends, so it's best to place each change on the bar line or slightly before it. If it lands just after, it waits a whole pass of the pattern.
+- **Length:** the "Steps" buttons set the selected pattern's length to 4, 8, 16 or 32 sixteenths. With 32, the steps are shown in two rows.
+- **Copy, paste and clear patterns:** right-click (or Control-click) a pattern button. Copy takes a snapshot of the steps and the length; Clear turns off every step and resets the length to 16.
+- **Live recording:** turn on `Rec` (at the left of the pattern bar) and press play in the DAW. Every pad hit, by click or MIDI, lands on the nearest step of the playing pattern and replaces what was there (overdub). Velocity picks the level; on the pads, Shift-click records an accent and Option-click a soft hit. With `16 Levels` on, the source pad is recorded with the semitone of the pad you hit.
+- **Play a pad chromatically ("16 Levels"):** select a pad and turn on `16 Levels`, next to the knobs. All 16 pads play that sample, one semitone per pad: pad 9 at its original tuning, 1 to 8 lower and 10 to 16 higher. It works with clicks and MIDI; the sequencer keeps playing the regular pads. While it's on, hitting a pad doesn't change the selection.
+- **Copy one pad to another:** right-click a pad. The audio and the settings (level, pan, pitch, decay, start and end) are copied, but not mute, solo or the steps.
+- **Swing:** the control in the header applies to the whole bank. 50 % is straight and 75 % is the heaviest shuffle; it delays the even sixteenths (2, 4, 6...), like an MPC. It is a host parameter.
+- **Edit the selected pad:** at the bottom is the sample's waveform, with two orange markers you can drag: where it starts and where it ends. They also move with the mouse wheel over the waveform: the wheel alone moves the start, with Shift the end, and with Option it moves in finer steps. Next to it are knobs for level, pan, pitch (±24 semitones) and decay (`off` = plays in full). Start and end are stored as a proportion of the file, so they stay put when you switch to another sample with `<` and `>`. Double-click a knob to reset it. You can type a value in each knob's text box, with or without a unit (`-6 dB`, `250 ms`, `30 L`).
+- **Mute and solo:** each pad has `M` and `S` buttons. A muted pad never sounds: not from the sequencer, MIDI or a click. If any pads are soloed, only those play (unless they are also muted). The change is smoothed over 5 ms so it doesn't click.
+- **Automation:** every per-pad setting (mute and solo included) is a host parameter, so it can be automated in Studio Pro.
+- **Saving:** saving the Studio Pro session stores the 16 patterns with their lengths and semitones, the swing, the selected pattern, each pad's settings and the **path** to each pad's sample (the audio isn't copied into the session). If a file is gone when the session opens, the pad shows "Missing: name" in red and stays silent; `...`, `<` or `>` loads it again. The clipboard isn't saved.
+- **Playing:** click a pad, or send MIDI notes. Pad 1 is note 36 (C1 in Studio Pro) and pad 16 is 51 (D#2). The grid follows the MPC layout: pad 1 at the bottom left.
 
-- macOS 11 o superior (Apple Silicon o Intel)
-- Xcode con las Command Line Tools (`xcode-select --install`)
-- CMake 3.22 o superior (`brew install cmake`)
+## Requirements (macOS)
 
-JUCE no hace falta instalarlo: CMake lo descarga solo la primera vez, fijado a la versión 9.0.5.
+- macOS 11 or later (Apple Silicon or Intel)
+- Xcode with the Command Line Tools (`xcode-select --install`)
+- CMake 3.22 or later (`brew install cmake`)
 
-## Compilar
+You don't need to install JUCE: CMake downloads it the first time, pinned to version 9.0.5.
+
+## Building
 
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --target NzDrum_VST3 --parallel
 ```
 
-La primera configuración tarda un poco porque descarga JUCE. Al terminar, el plugin se copia solo a `~/Library/Audio/Plug-Ins/VST3/NzDrum.vst3`. Para no copiarlo, configurá con `-DNZDRUM_COPY_AFTER_BUILD=OFF`.
+The first configure takes a while because it downloads JUCE. When the build finishes, the plugin is copied to `~/Library/Audio/Plug-Ins/VST3/NzDrum.vst3`. To skip the copy, configure with `-DNZDRUM_COPY_AFTER_BUILD=OFF`.
 
-También se genera una app standalone, útil para probar sin abrir el DAW:
+A standalone app is built too, handy for testing without opening a DAW:
 
 ```bash
 cmake --build build --target NzDrum_Standalone --parallel
 open build/NzDrum_artefacts/Release/Standalone/NzDrum.app
 ```
 
-Si preferís depurar con Xcode: `cmake -S . -B build-xcode -G Xcode` y abrí `build-xcode/NzDrum.xcodeproj`.
+To debug in Xcode: `cmake -S . -B build-xcode -G Xcode` and open `build-xcode/NzDrum.xcodeproj`.
 
-## Pruebas
+## Tests
 
-Las pruebas del motor cargan samples reales, tocan notas MIDI y revisan el audio que sale, sin necesidad de un DAW:
+The engine tests load real samples, play MIDI notes and check the audio that comes out, with no DAW needed:
 
 ```bash
 cmake --build build --target NzDrumTests --parallel
 ./build/NzDrumTests_artefacts/Release/NzDrumTests
 ```
 
-## Probar en Fender Studio Pro
+## Trying it in Fender Studio Pro
 
-1. Compilá como arriba y reiniciá Studio Pro (o volvé a escanear plugins).
-2. Arrastrá **NzDrum** a una pista de instrumento.
-3. Cargá samples en algunos pads y tocalos con click o con notas desde C1.
+1. Build as above and restart Studio Pro (or rescan plugins).
+2. Drag **NzDrum** onto an instrument track.
+3. Load samples on a few pads and play them by clicking or with notes from C1.
 
 ## CI
 
-Cada push y pull request compila el VST3 universal en GitHub Actions, corre las pruebas del motor, lo valida con [pluginval](https://github.com/Tracktion/pluginval) y lo deja como artifact descargable. Ese binario no está firmado ni notarizado: para usarlo, macOS te va a pedir habilitarlo a mano (`xattr -dr com.apple.quarantine NzDrum.vst3`). Para uso propio conviene compilarlo localmente.
+Every push and pull request builds the universal VST3 on GitHub Actions, runs the engine tests, validates it with [pluginval](https://github.com/Tracktion/pluginval) and uploads it as a downloadable artifact. That binary isn't signed or notarized: to use it, macOS will ask you to allow it by hand (`xattr -dr com.apple.quarantine NzDrum.vst3`). For your own use, building it locally is simpler.
 
-## Licencia
+## License
 
-El código de este repo es GPLv3 (ver `LICENSE`). JUCE se usa bajo AGPLv3, así que el plugin compilado se distribuye bajo los términos de la AGPLv3.
+The code in this repo is GPLv3 (see `LICENSE`). JUCE is used under the AGPLv3, so the compiled plugin is distributed under the terms of the AGPLv3.

@@ -21,12 +21,12 @@ PadComponent::PadComponent (NzDrumProcessor& processor, int padIndex)
     muteButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xffd9534f));
     soloButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xffe6c229));
     soloButton.setColour (juce::TextButton::textColourOnId, juce::Colours::black);
-    muteButton.setTooltip ("Mute: el pad no suena");
-    soloButton.setTooltip ("Solo: suenan solo los pads en solo");
+    muteButton.setTooltip ("Mute: the pad is silent");
+    soloButton.setTooltip ("Solo: only soloed pads play");
 
-    previousButton.setTooltip ("Archivo anterior de la carpeta");
-    nextButton.setTooltip ("Archivo siguiente de la carpeta");
-    loadButton.setTooltip ("Elegir un archivo");
+    previousButton.setTooltip ("Previous file in the folder");
+    nextButton.setTooltip ("Next file in the folder");
+    loadButton.setTooltip ("Choose a file");
 
     previousButton.onClick = [this] { nzProcessor.stepSample (pad, -1); };
     nextButton.onClick = [this] { nzProcessor.stepSample (pad, +1); };
@@ -68,8 +68,8 @@ void PadComponent::refresh()
     previousButton.setEnabled (hasFile);
     nextButton.setEnabled (hasFile);
 
-    // En modo cromático todos los pads tocan la fuente: se apagan o se
-    // prenden con el mute y el solo de ella.
+    // In 16 levels mode every pad plays the source, so they follow its mute
+    // and solo.
     const int source = nzProcessor.getChromaticSource();
     const bool nowChromatic = source >= 0;
 
@@ -93,7 +93,7 @@ void PadComponent::refresh()
     {
         lastTriggerCount = count;
 
-        // Un pad que no suena tampoco destella.
+        // A pad that doesn't sound doesn't flash either.
         if (audible)
             flash = 1.0f;
     }
@@ -128,22 +128,20 @@ void PadComponent::paint (juce::Graphics& g)
     g.setColour (textColour);
     g.setFont (juce::FontOptions (14.0f));
 
-    // Los literales con acentos se pasan como UTF-8 explícito: juce::String
-    // interpreta un const char* como ASCII.
-    juce::String label = fileName.isEmpty() ? juce::String::fromUTF8 ("Vacío") : fileName;
+    juce::String label = fileName.isEmpty() ? juce::String ("Empty") : fileName;
 
-    // La sesión pedía un archivo que ya no está: lo decimos en rojo, con el
-    // nombre, para que se pueda volver a cargar.
+    // The session asked for a file that is gone: say so in red, with the
+    // name, so it can be loaded again.
     if (missing)
     {
-        label = "Falta: " + fileName;
+        label = "Missing: " + fileName;
         g.setColour (juce::Colour (0xffff6b5e));
     }
 
     if (loading)
-        label = "Cargando...";
+        label = "Loading...";
 
-    // En cromático el pad muestra cuántos semitonos sube o baja la fuente.
+    // In 16 levels the pad shows how many semitones it shifts the source.
     if (chromatic)
     {
         const int offset = NzDrumProcessor::chromaticOffsetFor (pad);
@@ -154,7 +152,7 @@ void PadComponent::paint (juce::Graphics& g)
 
     g.drawFittedText (label, textArea.removeFromTop (40), juce::Justification::centredLeft, 2);
 
-    // Apagado por mute o solo: se oscurece, pero se sigue leyendo.
+    // Silenced by mute or solo: darkened, but still readable.
     if (! audible)
     {
         g.setColour (juce::Colours::black.withAlpha (0.45f));
@@ -187,8 +185,8 @@ void PadComponent::mouseDown (const juce::MouseEvent& event)
         return;
     }
 
-    // Igual que en la fila de pasos: Shift toca acentuado y Option bajo (se
-    // nota al grabar, porque el paso queda con ese nivel).
+    // Same as the step row: Shift plays an accent and Option a soft hit (it
+    // matters when recording, since the step gets that level).
     float velocity = uiVelocity;
 
     if (event.mods.isShiftDown())
@@ -208,8 +206,8 @@ void PadComponent::showPadMenu()
 
     juce::PopupMenu menu;
     menu.addSectionHeader ("Pad " + juce::String (pad + 1));
-    menu.addItem ("Copiar pad (audio y ajustes)", hasFile, false, [this] { nzProcessor.copyPad (pad); });
-    menu.addItem ("Pegar pad", nzProcessor.hasCopiedPad(), false, [this] { nzProcessor.pastePad (pad); });
+    menu.addItem ("Copy pad (audio and settings)", hasFile, false, [this] { nzProcessor.copyPad (pad); });
+    menu.addItem ("Paste pad", nzProcessor.hasCopiedPad(), false, [this] { nzProcessor.pastePad (pad); });
 
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this));
 }
@@ -227,7 +225,7 @@ void PadComponent::openFileChooser()
 {
     const auto startFolder = nzProcessor.getPadFile (pad).getParentDirectory();
 
-    chooser = std::make_unique<juce::FileChooser> (juce::String::fromUTF8 ("Elegí un sample para el pad ") + juce::String (pad + 1),
+    chooser = std::make_unique<juce::FileChooser> (juce::String ("Choose a sample for pad ") + juce::String (pad + 1),
                                                    startFolder,
                                                    nzProcessor.getSupportedWildcard());
 
