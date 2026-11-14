@@ -4,6 +4,22 @@ All notable changes to NzDrum are listed here. Versions follow
 [Semantic Versioning](https://semver.org); while the version starts with 0,
 anything may still change between releases, including the saved session format.
 
+## [0.2.0]
+
+New interface, "Crema 80s": a cream hardware look designed in Figma.
+
+- Redrawn pads, step keys coloured by beat, LED step levels, knobs with LCD
+  value boxes and a sage LCD in the header.
+- The header LCD shows the playing pattern, the next one, play or stop, tempo
+  and the position as bar and beat.
+- The pattern bank lights the playing pattern and blinks the queued one with a
+  dashed outline.
+- The sample view shows the start and end as red markers with their
+  percentages.
+- The window can be resized from 75 % to 200 %, keeping its proportions, and
+  the size is saved with the session.
+- Embedded fonts: Barlow Condensed and Share Tech Mono (SIL Open Font License).
+
 ## [0.1.0]
 
 First public release. macOS only, VST3 only.
