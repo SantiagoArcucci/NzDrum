@@ -242,6 +242,12 @@ void NzDrumProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
         hostBpm.store (position->getBpm().orFallback (0.0), std::memory_order_relaxed);
         hostPpq.store (position->getPpqPosition().orFallback (0.0), std::memory_order_relaxed);
         hostPlaying.store (position->getIsPlaying(), std::memory_order_relaxed);
+
+        if (const auto signature = position->getTimeSignature())
+        {
+            hostTimeSigNumerator.store (signature->numerator, std::memory_order_relaxed);
+            hostTimeSigDenominator.store (signature->denominator, std::memory_order_relaxed);
+        }
     }
 
     // 1. Pick up any new samples left by the loader thread. If a pad changed
@@ -1126,6 +1132,7 @@ void NzDrumProcessor::getStateInformation (juce::MemoryBlock& destination)
 
     juce::ValueTree data (dataTag);
     data.setProperty ("version", stateVersion, nullptr);
+    data.setProperty ("editorWidth", editorWidth.load(), nullptr);
 
     // Each pattern: its length and the steps of the 16 pads as 512 digits
     // (0 off, 1 soft, 2 normal, 3 accent). Compact and easy to read.
@@ -1197,6 +1204,10 @@ void NzDrumProcessor::setStateInformation (const void* data, int sizeInBytes)
 
     if (! extra.isValid())
         return;
+
+    // Older sessions don't have it: the window keeps its size.
+    if (extra.hasProperty ("editorWidth"))
+        editorWidth.store ((int) extra.getProperty ("editorWidth"));
 
     for (int pattern = 0; pattern < numPatterns; ++pattern)
         clearPattern (pattern);
@@ -1303,7 +1314,9 @@ NzDrumProcessor::TransportSnapshot NzDrumProcessor::getTransport() const noexcep
 {
     return { hostBpm.load (std::memory_order_relaxed),
              hostPpq.load (std::memory_order_relaxed),
-             hostPlaying.load (std::memory_order_relaxed) };
+             hostPlaying.load (std::memory_order_relaxed),
+             hostTimeSigNumerator.load (std::memory_order_relaxed),
+             hostTimeSigDenominator.load (std::memory_order_relaxed) };
 }
 
 juce::AudioProcessorEditor* NzDrumProcessor::createEditor()

@@ -1,38 +1,34 @@
 #pragma once
 
 #include "PluginProcessor.h"
-#include "PadComponent.h"
-#include "StepSequencerComponent.h"
-#include "PadEditorComponent.h"
-#include "PatternBarComponent.h"
+#include "MainView.h"
+#include "Theme.h"
 
-// The plugin window. It lives on the UI thread and never touches audio
-// directly: it asks the processor for things and reads what it publishes.
-class NzDrumEditor final : public juce::AudioProcessorEditor,
-                           private juce::Timer
+// The plugin window. It holds the UI at its design size and scales it to
+// whatever size the window has, keeping the proportions. The UI lives on the
+// UI thread and never touches audio directly: it asks the processor for
+// things and reads what it publishes.
+class NzDrumEditor final : public juce::AudioProcessorEditor
 {
 public:
     explicit NzDrumEditor (NzDrumProcessor&);
+    ~NzDrumEditor() override;
 
-    void paint (juce::Graphics&) override;
     void resized() override;
 
+    MainView& getView() noexcept { return view; }
+
+    static constexpr int minWidth = 540;    // 75 %
+    static constexpr int maxWidth = 1440;   // 200 %
+
+    // The width the window opens at, from the one saved with the session.
+    static int initialWidth (int savedWidth) noexcept { return juce::jlimit (minWidth, maxWidth, savedWidth); }
+
 private:
-    // Polls at 30 Hz, a bit like a slower requestAnimationFrame.
-    void timerCallback() override;
-    void selectPad (int pad);
-
     NzDrumProcessor& nzProcessor;
-    std::vector<std::unique_ptr<PadComponent>> pads;
-    PatternBarComponent patternBar { nzProcessor };
-    StepSequencerComponent sequencer { nzProcessor };
-    PadEditorComponent padEditor { nzProcessor };
+    NzLookAndFeel lookAndFeel;
+    MainView view { nzProcessor };
     juce::TooltipWindow tooltips { this };
-
-    // Global swing, in the header.
-    juce::Label swingLabel { {}, "Swing" };
-    juce::Slider swingSlider { juce::Slider::LinearHorizontal, juce::Slider::TextBoxRight };
-    juce::AudioProcessorValueTreeState::SliderAttachment swingAttachment { nzProcessor.getParameters(), "swing", swingSlider };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (NzDrumEditor)
 };

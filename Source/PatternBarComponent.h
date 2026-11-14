@@ -1,11 +1,11 @@
 #pragma once
 
 #include "PluginProcessor.h"
+#include "Theme.h"
 
-// The pattern bar: 16 buttons to pick a pattern and 4 for its length.
-//   - The selected pattern is drawn filled. If the previous one is still
-//     playing (the switch waits for the end of the pattern), it blinks with
-//     an outline.
+// The pattern bar: Rec, 16 buttons to pick a pattern and 4 for its length.
+//   - The playing pattern is lit red. A pattern switch waits for the end of
+//     the pattern: meanwhile the next one blinks with a dashed outline.
 //   - A small dot marks patterns that have any steps.
 //   - Right click on a pattern: copy, paste or clear.
 //   - Rec: while the DAW plays, whatever is played on the pads is recorded
@@ -32,7 +32,7 @@ private:
     void showPatternMenu (int pattern);
 
     NzDrumProcessor& nzProcessor;
-    juce::TextButton recButton { "Rec" };
+    ThemeKey recButton { "REC", 11.0f, true };
     int selected = 0;
     int playing = 0;
     int length = NzDrumProcessor::defaultPatternLength;

@@ -33,10 +33,20 @@ juce_add_plugin(NzDrum
     NEEDS_WEB_BROWSER FALSE
     NEEDS_CURL FALSE)
 
+# Fonts embedded in the binary (SIL Open Font License, see Resources/Fonts).
+juce_add_binary_data(NzDrumAssets
+    SOURCES
+        Resources/Fonts/BarlowCondensed-SemiBold.ttf
+        Resources/Fonts/BarlowCondensed-Bold.ttf
+        Resources/Fonts/BarlowCondensed-BoldItalic.ttf
+        Resources/Fonts/ShareTechMono-Regular.ttf)
+
 target_sources(NzDrum
     PRIVATE
         Source/PluginProcessor.cpp
         Source/PluginEditor.cpp
+        Source/Theme.cpp
+        Source/MainView.cpp
         Source/PadComponent.cpp
         Source/StepSequencerComponent.cpp
         Source/PadEditorComponent.cpp
@@ -50,6 +60,7 @@ target_compile_definitions(NzDrum
 
 target_link_libraries(NzDrum
     PRIVATE
+        NzDrumAssets
         juce::juce_audio_utils
     PUBLIC
         juce::juce_recommended_config_flags
@@ -65,8 +76,11 @@ if(NZDRUM_BUILD_TESTS)
     target_sources(NzDrumTests
         PRIVATE
             Tests/EngineTests.cpp
+            Tests/Snapshot.cpp
             Source/PluginProcessor.cpp
             Source/PluginEditor.cpp
+            Source/Theme.cpp
+            Source/MainView.cpp
             Source/PadComponent.cpp
             Source/StepSequencerComponent.cpp
             Source/PadEditorComponent.cpp
@@ -80,6 +94,7 @@ if(NZDRUM_BUILD_TESTS)
 
     target_link_libraries(NzDrumTests
         PRIVATE
+            NzDrumAssets
             juce::juce_audio_utils
         PUBLIC
             juce::juce_recommended_config_flags

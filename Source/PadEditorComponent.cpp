@@ -2,11 +2,12 @@
 
 namespace
 {
-    const juce::Colour backgroundColour { 0xff23262d };
-    const juce::Colour waveColour { 0xffb9bcc4 };
-    const juce::Colour accentColour { 0xffff8a3d };
-    const juce::Colour textColour { 0xffe8e8ea };
     constexpr float markerGrabDistance = 8.0f;
+
+    // Positions inside the panel, from the design.
+    const juce::Rectangle<int> waveDisplay { 14, 22, 360, 116 };
+    constexpr int knobColumnsX = 390, knobColumnWidth = 74;
+    constexpr int knobLabelY = 30, knobTop = 44, knobSize = 52, knobLcdWidth = 60, knobLcdHeight = 22;
 }
 
 // ============================================================================
@@ -65,14 +66,21 @@ void WaveformView::refresh()
     }
 }
 
+juce::Rectangle<float> WaveformView::waveArea() const
+{
+    return { 8.0f, 6.0f, (float) getWidth() - 16.0f, 88.0f };
+}
+
 float WaveformView::xFor (float proportion) const
 {
-    return (float) getWidth() * proportion;
+    const auto area = waveArea();
+    return area.getX() + area.getWidth() * proportion;
 }
 
 float WaveformView::proportionAt (float x) const
 {
-    return juce::jlimit (0.0f, 1.0f, x / (float) juce::jmax (1, getWidth()));
+    const auto area = waveArea();
+    return juce::jlimit (0.0f, 1.0f, (x - area.getX()) / juce::jmax (1.0f, area.getWidth()));
 }
 
 WaveformView::Marker WaveformView::markerNear (float x) const
@@ -93,39 +101,55 @@ juce::ParameterAttachment& WaveformView::attachmentFor (Marker marker)
 
 void WaveformView::paint (juce::Graphics& g)
 {
-    const auto bounds = getLocalBounds().toFloat();
+    using namespace theme;
 
-    g.setColour (backgroundColour);
-    g.fillRoundedRectangle (bounds, 6.0f);
+    const auto bounds = getLocalBounds().toFloat();
+    drawDisplay (g, bounds, 6.0f);
+
+    const auto area = waveArea();
 
     if (thumbnail.getTotalLength() <= 0.0)
     {
-        g.setColour (textColour.withAlpha (0.4f));
-        g.setFont (juce::FontOptions (13.0f));
-        g.drawText (juce::String ("Load a sample to see its waveform"),
-                    getLocalBounds(), juce::Justification::centred);
+        drawText (g, "LOAD A SAMPLE", font::mono (13.0f), colour::displayInk.withAlpha (0.6f),
+                  area, juce::Justification::centred);
         return;
     }
 
-    g.setColour (waveColour);
-    thumbnail.drawChannels (g, getLocalBounds().reduced (0, 6), 0.0, thumbnail.getTotalLength(), 1.0f);
+    // The part that plays sits on a lighter "paper".
+    const auto playing = area.withLeft (xFor (start)).withRight (xFor (end));
+    g.setColour (colour::displayPaper);
+    g.fillRect (playing);
 
-    // Whatever lies outside start and end is darkened: it won't play.
-    g.setColour (juce::Colours::black.withAlpha (0.55f));
-    g.fillRect (bounds.withRight (xFor (start)));
-    g.fillRect (bounds.withLeft (xFor (end)));
+    g.setColour (colour::displayInk.withAlpha (0.35f));
+    g.fillRect (area.withHeight (1.0f).withCentre (area.getCentre()));
 
-    g.setColour (accentColour);
+    // The wave: faded outside start and end, dark inside.
+    g.setColour (colour::displayInk.withAlpha (0.35f));
+    thumbnail.drawChannels (g, area.toNearestInt(), 0.0, thumbnail.getTotalLength(), 1.0f);
 
+    {
+        juce::Graphics::ScopedSaveState state (g);
+        g.reduceClipRegion (playing.toNearestInt());
+        g.setColour (juce::Colour (0xff2f3a24));
+        thumbnail.drawChannels (g, area.toNearestInt(), 0.0, thumbnail.getTotalLength(), 1.0f);
+    }
+
+    // Markers: a red line with a flag on top that shows where to grab it.
     for (const float proportion : { start, end })
     {
         const float x = xFor (proportion);
-        g.drawLine (x, 0.0f, x, bounds.getHeight(), 2.0f);
+        g.setColour (colour::logoRed);
+        g.fillRect (juce::Rectangle<float> (x - 1.0f, area.getY(), 2.0f, area.getHeight()));
+
+        juce::Path flag;
+        flag.addTriangle ({ x - 6.0f, area.getY() }, { x + 6.0f, area.getY() }, { x, area.getY() + 8.0f });
+        g.fillPath (flag);
     }
 
-    // A small "flag" on each marker shows where to grab it.
-    g.fillRect (xFor (start), 0.0f, 8.0f, 8.0f);
-    g.fillRect (xFor (end) - 8.0f, bounds.getHeight() - 8.0f, 8.0f, 8.0f);
+    const auto percent = [] (float value) { return juce::String (juce::roundToInt (value * 100.0f)) + "%"; };
+    const juce::Rectangle<float> readouts { area.getX(), 96.0f, area.getWidth(), 16.0f };
+    drawText (g, "START " + percent (start), font::mono (12.0f), colour::displayInk, readouts, juce::Justification::centredLeft);
+    drawText (g, "END " + percent (end), font::mono (12.0f), colour::displayInk, readouts, juce::Justification::centredRight);
 }
 
 void WaveformView::mouseMove (const juce::MouseEvent& event)
@@ -139,7 +163,7 @@ void WaveformView::mouseDown (const juce::MouseEvent& event)
     if (thumbnail.getTotalLength() <= 0.0)
         return;
 
-    dragging = markerNear (event.position.x);
+    dragging = event.position.y <= waveArea().getBottom() ? markerNear (event.position.x) : Marker::none;
 
     if (dragging != Marker::none)
         attachmentFor (dragging).beginGesture();
@@ -213,26 +237,23 @@ PadEditorComponent::PadEditorComponent (NzDrumProcessor& processor)
 {
     addAndMakeVisible (waveform);
 
-    const std::array<std::pair<const char*, const char*>, 4> names { {
-        { "level", "Level" }, { "pan", "Pan" }, { "pitch", "Pitch" }, { "decay", "Decay" }
+    struct Spec { const char* parameter; const char* label; bool bipolar; };
+    const std::array<Spec, 4> specs { {
+        { "level", "VOLUME", false }, { "pan", "PAN", true }, { "pitch", "PITCH", true }, { "decay", "DECAY", false }
     } };
 
     for (size_t i = 0; i < knobs.size(); ++i)
     {
         auto& knob = knobs[i];
-        knob.parameterName = names[i].first;
-        knob.label.setText (names[i].second, juce::dontSendNotification);
-        knob.label.setJustificationType (juce::Justification::centred);
-        knob.label.setColour (juce::Label::textColourId, textColour.withAlpha (0.7f));
-        knob.slider.setColour (juce::Slider::rotarySliderFillColourId, accentColour);
-        knob.slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 68, 18);
+        knob.parameterName = specs[i].parameter;
+        knob.label = specs[i].label;
+        knob.slider.getProperties().set (NzLookAndFeel::bipolarProperty, specs[i].bipolar);
+        knob.slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, knobLcdWidth, knobLcdHeight);
         addAndMakeVisible (knob.slider);
-        addAndMakeVisible (knob.label);
     }
 
     chromaticButton.setClickingTogglesState (true);
-    chromaticButton.setColour (juce::TextButton::buttonOnColourId, accentColour);
-    chromaticButton.setColour (juce::TextButton::textColourOnId, juce::Colours::black);
+    chromaticButton.setBorderAlpha (0.45f);
     chromaticButton.setTooltip (juce::String ("Spreads the selected pad across the 16 pads, one semitone apart "
                                                     "(pad 9 is the original pitch). For live playing and recording: "
                                                     "existing steps play as before."));
@@ -250,6 +271,14 @@ void PadEditorComponent::refresh()
     // The mode lives in the processor: if the window is closed and reopened,
     // the button shows what is really going on.
     chromaticButton.setToggleState (nzProcessor.getChromaticSource() >= 0, juce::dontSendNotification);
+
+    const auto name = nzProcessor.getPadFile (currentPad).getFileName().toUpperCase();
+
+    if (name != sampleName)
+    {
+        sampleName = name;
+        repaint();
+    }
 }
 
 void PadEditorComponent::setPad (int pad)
@@ -265,21 +294,36 @@ void PadEditorComponent::setPad (int pad)
         knob.attachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
             nzProcessor.getParameters(), NzDrumProcessor::paramId (pad, knob.parameterName), knob.slider);
     }
+
+    sampleName = nzProcessor.getPadFile (pad).getFileName().toUpperCase();
+    repaint();
+}
+
+void PadEditorComponent::paint (juce::Graphics& g)
+{
+    using namespace theme;
+
+    const auto sample = juce::String::fromUTF8 ("SAMPLE \xc2\xb7 ") + (sampleName.isEmpty() ? juce::String ("EMPTY") : sampleName);
+    drawText (g, sample, font::label(), colour::secondary, { 14.0f, 6.0f, 360.0f, 12.0f }, juce::Justification::centredLeft);
+
+    const auto controls = "PAD " + juce::String (currentPad + 1).paddedLeft ('0', 2) + " CONTROLS";
+    drawText (g, controls, font::label(), colour::secondary, { (float) knobColumnsX, 6.0f, 180.0f, 12.0f }, juce::Justification::centredLeft);
+
+    for (size_t i = 0; i < knobs.size(); ++i)
+        drawText (g, knobs[i].label, font::label(), colour::secondary,
+                  { (float) (knobColumnsX + (int) i * knobColumnWidth), (float) knobLabelY, (float) knobColumnWidth, 12.0f },
+                  juce::Justification::centred);
 }
 
 void PadEditorComponent::resized()
 {
-    auto area = getLocalBounds();
-    auto buttonArea = area.removeFromRight (92);
-    chromaticButton.setBounds (buttonArea.withSizeKeepingCentre (84, 32));
+    waveform.setBounds (waveDisplay);
+    chromaticButton.setBounds (594, 2, 92, 20);
 
-    auto knobArea = area.removeFromRight (4 * 76);
-    waveform.setBounds (area.reduced (0, 4).withTrimmedRight (12));
-
-    for (auto& knob : knobs)
+    for (size_t i = 0; i < knobs.size(); ++i)
     {
-        auto column = knobArea.removeFromLeft (76);
-        knob.label.setBounds (column.removeFromTop (18));
-        knob.slider.setBounds (column.reduced (4, 0));
+        const int columnX = knobColumnsX + (int) i * knobColumnWidth;
+        knobs[i].slider.setBounds (columnX + (knobColumnWidth - knobLcdWidth) / 2, knobTop,
+                                   knobLcdWidth, knobSize + 6 + knobLcdHeight);
     }
 }

@@ -2,6 +2,7 @@
 
 #include <juce_audio_utils/juce_audio_utils.h>
 #include "PluginProcessor.h"
+#include "Theme.h"
 
 // Waveform of the selected pad with two markers, start and end, that can be
 // dragged with the mouse (or moved with the wheel). The markers are host
@@ -27,6 +28,7 @@ private:
     enum class Marker { none, start, end };
 
     void changeListenerCallback (juce::ChangeBroadcaster*) override { repaint(); }
+    juce::Rectangle<float> waveArea() const;
     float xFor (float proportion) const;
     float proportionAt (float x) const;
     Marker markerNear (float x) const;
@@ -59,13 +61,14 @@ public:
     void setPad (int pad);
     void refresh();
 
+    void paint (juce::Graphics&) override;
     void resized() override;
 
 private:
     struct Knob
     {
         juce::Slider slider { juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::TextBoxBelow };
-        juce::Label label;
+        juce::String label;
         std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> attachment;
         const char* parameterName = "";
     };
@@ -73,8 +76,9 @@ private:
     NzDrumProcessor& nzProcessor;
     WaveformView waveform;
     std::array<Knob, 4> knobs;
-    juce::TextButton chromaticButton { "16 Levels" };
+    ThemeKey chromaticButton { "16 LEVELS", 11.0f, true };
     int currentPad = 0;
+    juce::String sampleName;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PadEditorComponent)
 };

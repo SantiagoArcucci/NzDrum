@@ -1,6 +1,7 @@
 #pragma once
 
 #include "PluginProcessor.h"
+#include "Theme.h"
 
 // The selected pad's steps in the selected pattern. Up to 16 steps fit in one
 // row; 32 use two.
@@ -32,11 +33,16 @@ public:
     static StepLevel levelAfterClick (StepLevel current, const juce::ModifierKeys& modifiers) noexcept;
 
 private:
+    // The whole step (LED and key): what a click hits.
     juce::Rectangle<float> stepBounds (int step) const;
+    juce::Rectangle<float> keyBounds (int step) const;
+    juce::Rectangle<float> ledBounds (int step) const;
+    void paintStep (juce::Graphics&, int step, bool inPattern);
     int stepAt (juce::Point<float> position) const;
 
     NzDrumProcessor& nzProcessor;
     int pad = 0;
+    juce::String padName;
     int pattern = 0;
     int length = NzDrumProcessor::defaultPatternLength;
     int playingStep = -1;   // -1 if this pattern isn't playing

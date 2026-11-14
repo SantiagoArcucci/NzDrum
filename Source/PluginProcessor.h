@@ -198,9 +198,16 @@ public:
         double bpm = 0.0;
         double ppq = 0.0;
         bool playing = false;
+        int timeSigNumerator = 4;
+        int timeSigDenominator = 4;
     };
 
     TransportSnapshot getTransport() const noexcept;
+
+    // The plugin window's width, saved with the session (the height follows
+    // the design's proportions).
+    int getEditorWidth() const noexcept { return editorWidth.load(); }
+    void setEditorWidth (int width) noexcept { editorWidth.store (width); }
 
 private:
     // One voice per pad: if the pad is triggered again it restarts (as on an
@@ -361,6 +368,8 @@ private:
     std::atomic<double> hostBpm { 0.0 };
     std::atomic<double> hostPpq { 0.0 };
     std::atomic<bool> hostPlaying { false };
+    std::atomic<int> hostTimeSigNumerator { 4 }, hostTimeSigDenominator { 4 };
+    std::atomic<int> editorWidth { 720 };
 
     // Length of each loaded sample, to report the "tail" to the host.
     std::array<std::atomic<double>, numPads> sampleSeconds {};
