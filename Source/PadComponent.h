@@ -1,13 +1,15 @@
 #pragma once
 
 #include "PluginProcessor.h"
+#include "Theme.h"
 
-// One pad of the grid: shows the loaded file, plays on click and accepts
-// dropped files. The buttons at the bottom load a file or step through the
-// current sample's folder. Mute (M) and solo (S) sit at the top right.
+// One pad of the grid: a rubber pad that plays on click and accepts dropped
+// files, and below it a strip with the pad number, the sample name and small
+// keys: previous and next file in the folder, choose a file, mute and solo.
 // Right click: copy or paste the pad (audio and settings).
 class PadComponent final : public juce::Component,
-                           public juce::FileDragAndDropTarget
+                           public juce::FileDragAndDropTarget,
+                           public juce::SettableTooltipClient
 {
 public:
     PadComponent (NzDrumProcessor& processor, int padIndex);
@@ -36,12 +38,16 @@ private:
     NzDrumProcessor& nzProcessor;
     const int pad;
 
-    juce::TextButton previousButton { "<" }, loadButton { "..." }, nextButton { ">" };
+    juce::Rectangle<float> rubberBounds() const;
+
+    ThemeKey previousButton { juce::String::fromUTF8 ("\xe2\x80\xb9") },   // ‹
+             nextButton { juce::String::fromUTF8 ("\xe2\x80\xba") },       // ›
+             loadButton { juce::String::fromUTF8 ("\xe2\x80\xa6") };       // …
     std::unique_ptr<juce::FileChooser> chooser;
 
     // Mute and solo are host parameters: the attachments keep button and
     // parameter in sync both ways (automation included).
-    juce::TextButton muteButton { "M" }, soloButton { "S" };
+    ThemeKey muteButton { "M" }, soloButton { "S" };
     juce::AudioProcessorValueTreeState::ButtonAttachment muteAttachment, soloAttachment;
 
     juce::String fileName;

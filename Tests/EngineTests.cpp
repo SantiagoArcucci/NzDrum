@@ -3,6 +3,7 @@
 // Run with: cmake --build build --target NzDrumTests && ./build/NzDrumTests_artefacts/Release/NzDrumTests
 
 #include "../Source/PluginProcessor.h"
+#include "../Source/PluginEditor.h"
 #include "../Source/StepSequencerComponent.h"
 
 namespace
@@ -507,9 +508,16 @@ private:
 
 static PadSettingsTests padSettingsTests;
 
-int main()
+int runSnapshot (const juce::File& output, float scale);
+
+int main (int argc, char* argv[])
 {
     juce::ScopedJuceInitialiser_GUI juceInit;
+
+    // Renders the UI to a PNG instead of running the tests (see Snapshot.cpp).
+    if (argc >= 3 && juce::String (argv[1]) == "--snapshot")
+        return runSnapshot (juce::File::getCurrentWorkingDirectory().getChildFile (argv[2]),
+                            argc >= 4 ? juce::String (argv[3]).getFloatValue() : 1.0f);
 
     juce::UnitTestRunner runner;
     runner.setAssertOnFailure (false);
@@ -1500,3 +1508,56 @@ private:
 };
 
 static RecordingTests recordingTests;
+
+// ============================================================================
+// Plugin window
+// ============================================================================
+
+class UiTests final : public juce::UnitTest
+{
+public:
+    UiTests() : juce::UnitTest ("Plugin window", "NzDrum") {}
+
+    void runTest() override
+    {
+        const auto dot = juce::String::fromUTF8 (" \xc2\xb7 ");
+
+        beginTest ("The LCD shows bar and beat for the time signature");
+        {
+            expectEquals (TransportDisplay::positionText (0.0, 4, 4), "BAR 1" + dot + "1.00");
+            expectEquals (TransportDisplay::positionText (5.0, 4, 4), "BAR 2" + dot + "2.00");
+            expectEquals (TransportDisplay::positionText (5.25, 4, 4), "BAR 2" + dot + "2.25");
+            expectEquals (TransportDisplay::positionText (3.0, 6, 8), "BAR 2" + dot + "1.00");   // 6/8: a bar is 3 quarter notes
+            expectEquals (TransportDisplay::positionText (-2.0, 4, 4), "BAR 1" + dot + "1.00");   // pre-roll
+            expectEquals (TransportDisplay::positionText (4.0, 0, 0), "BAR 2" + dot + "1.00");    // no signature: 4/4
+        }
+
+        beginTest ("The window opens at the saved size, keeping the design's proportions");
+        {
+            NzDrumProcessor p;
+            p.setEditorWidth (1080);
+
+            juce::MemoryBlock saved;
+            p.getStateInformation (saved);
+
+            NzDrumProcessor restored;
+            restored.setStateInformation (saved.getData(), (int) saved.getSize());
+            expectEquals (restored.getEditorWidth(), 1080);
+
+            // The window size itself depends on the screen (there's none
+            // here), so this only checks that resizing is remembered.
+            std::unique_ptr<juce::AudioProcessorEditor> editor (restored.createEditor());
+            editor->setSize (900, 1125);
+            expectEquals (restored.getEditorWidth(), 900);
+        }
+
+        beginTest ("A saved size outside the limits is clamped");
+        {
+            expectEquals (NzDrumEditor::initialWidth (100000), NzDrumEditor::maxWidth);
+            expectEquals (NzDrumEditor::initialWidth (10), NzDrumEditor::minWidth);
+            expectEquals (NzDrumEditor::initialWidth (1080), 1080);
+        }
+    }
+};
+
+static UiTests uiTests;

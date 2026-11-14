@@ -30,6 +30,15 @@ jobs:
       - name: Run engine tests
         run: ./build/NzDrumTests_artefacts/Release/NzDrumTests
 
+      - name: Render the UI to a PNG
+        run: ./build/NzDrumTests_artefacts/Release/NzDrumTests --snapshot ui.png 2
+
+      - name: Upload the UI snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: NzDrum-UI-snapshot
+          path: ui.png
+
       - name: Validate with pluginval
         run: |
           curl -sSL -o pluginval.zip https://github.com/Tracktion/pluginval/releases/latest/download/pluginval_macOS.zip

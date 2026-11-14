@@ -2,13 +2,11 @@
 
 namespace
 {
-    const juce::Colour offColour { 0xff2a2d35 };
-    const juce::Colour accentColour { 0xffff8a3d };
-    const juce::Colour textColour { 0xffe8e8ea };
-    constexpr int recWidth = 46;
-    constexpr int labelWidth = recWidth + 64;
-    constexpr float lengthAreaWidth = 150.0f;
-    constexpr float lengthLabelWidth = 44.0f;
+    // Positions inside the panel, from the design.
+    constexpr float keyTop = 22.0f, keyHeight = 30.0f;
+    constexpr float patternLeft = 70.0f, patternPitch = 28.0f, patternWidth = 25.0f;
+    constexpr float lengthLeft = 538.0f, lengthPitch = 36.0f, lengthWidth = 34.0f;
+    constexpr float labelTop = 6.0f, labelHeight = 12.0f;
 }
 
 PatternBarComponent::PatternBarComponent (NzDrumProcessor& processor)
@@ -17,7 +15,7 @@ PatternBarComponent::PatternBarComponent (NzDrumProcessor& processor)
     setTooltip (juce::String ("Right click on a pattern: copy, paste or clear"));
 
     recButton.setClickingTogglesState (true);
-    recButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xffd9534f));
+    recButton.setBorderAlpha (0.45f);
     recButton.setTooltip (juce::String ("Record: while the DAW plays, pad hits (click or MIDI) land on the nearest "
                                               "step of the playing pattern, replacing what was there. "
                                               "In 16 Levels the source pad is recorded with its semitone."));
@@ -27,7 +25,7 @@ PatternBarComponent::PatternBarComponent (NzDrumProcessor& processor)
 
 void PatternBarComponent::resized()
 {
-    recButton.setBounds (getLocalBounds().removeFromLeft (recWidth).reduced (2, 4));
+    recButton.setBounds (14, (int) keyTop, 46, (int) keyHeight);
 }
 
 bool PatternBarComponent::patternHasSteps (int pattern) const
@@ -79,69 +77,55 @@ void PatternBarComponent::refresh()
 
 juce::Rectangle<float> PatternBarComponent::patternBounds (int pattern) const
 {
-    auto area = getLocalBounds().toFloat().withTrimmedLeft ((float) labelWidth).withTrimmedRight (lengthAreaWidth + lengthLabelWidth + 8.0f);
-    const float groupGap = 8.0f;
-    const float width = (area.getWidth() - groupGap * 3.0f) / (float) NzDrumProcessor::numPatterns;
-    const float x = area.getX() + (float) pattern * width + (float) (pattern / 4) * groupGap;
-
-    return { x + 2.0f, area.getY() + 4.0f, width - 4.0f, area.getHeight() - 8.0f };
+    return { patternLeft + (float) pattern * patternPitch, keyTop, patternWidth, keyHeight };
 }
 
 juce::Rectangle<float> PatternBarComponent::lengthBounds (int index) const
 {
-    auto area = getLocalBounds().toFloat().removeFromRight (lengthAreaWidth);
-    const float width = area.getWidth() / (float) lengths.size();
-
-    return { area.getX() + (float) index * width + 2.0f, area.getY() + 4.0f, width - 4.0f, area.getHeight() - 8.0f };
+    return { lengthLeft + (float) index * lengthPitch, keyTop, lengthWidth, keyHeight };
 }
 
 void PatternBarComponent::paint (juce::Graphics& g)
 {
-    g.setColour (textColour.withAlpha (0.6f));
-    g.setFont (juce::FontOptions (13.0f, juce::Font::bold));
-    g.drawText (juce::String ("Pattern"), getLocalBounds().removeFromLeft (labelWidth).withTrimmedLeft (recWidth).reduced (8, 0),
-                juce::Justification::centredLeft);
+    using namespace theme;
 
-    g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
+    drawText (g, "LIVE", font::label(), colour::secondary, { 14.0f, labelTop, 46.0f, labelHeight }, juce::Justification::centredLeft);
+    drawText (g, "PATTERN BANK", font::label(), colour::secondary, { patternLeft, labelTop, 300.0f, labelHeight }, juce::Justification::centredLeft);
+    drawText (g, "STEPS", font::label(), colour::secondary, { lengthLeft, labelTop, 140.0f, labelHeight }, juce::Justification::centredLeft);
 
     for (int pattern = 0; pattern < NzDrumProcessor::numPatterns; ++pattern)
     {
         const auto bounds = patternBounds (pattern);
-        const bool isSelected = pattern == selected;
+        const bool lit = pattern == playing;
+        const auto textColour = drawUtilityKey (g, bounds, lit);
 
-        g.setColour (isSelected ? accentColour : offColour);
-        g.fillRoundedRectangle (bounds, 4.0f);
-
-        if (pattern == playing && playing != selected && blinkOn)
+        // The pattern coming next, while the playing one finishes.
+        if (pattern == selected && selected != playing && blinkOn)
         {
-            g.setColour (accentColour);
-            g.drawRoundedRectangle (bounds, 4.0f, 2.0f);
+            juce::Path outline;
+            outline.addRoundedRectangle (bounds.reduced (1.5f), 2.0f);
+            const float dashes[] { 2.0f, 2.0f };
+            juce::Path dashed;
+            juce::PathStrokeType (1.5f).createDashedStroke (dashed, outline, dashes, 2);
+            g.setColour (colour::active);
+            g.fillPath (dashed);
         }
 
-        g.setColour (isSelected ? juce::Colours::black : textColour.withAlpha (0.8f));
-        g.drawText (juce::String (pattern + 1), bounds, juce::Justification::centred);
+        drawText (g, juce::String (pattern + 1), font::bold (12.0f), textColour,
+                  bounds.withTrimmedTop (2.0f), juce::Justification::centred);
 
         if (hasSteps[(size_t) pattern])
         {
-            g.setColour (isSelected ? juce::Colours::black.withAlpha (0.6f) : accentColour);
-            g.fillEllipse (bounds.getRight() - 6.0f, bounds.getY() + 3.0f, 3.0f, 3.0f);
+            g.setColour (lit ? colour::lightInk : colour::active);
+            g.fillEllipse (bounds.getX() + 10.5f, bounds.getY() + 3.0f, 4.0f, 4.0f);
         }
     }
-
-    // A label so the length isn't mistaken for patterns.
-    g.setColour (textColour.withAlpha (0.6f));
-    g.drawText ("Steps", getLocalBounds().toFloat().withTrimmedRight (lengthAreaWidth).removeFromRight (lengthLabelWidth),
-                juce::Justification::centred);
 
     for (int i = 0; i < (int) lengths.size(); ++i)
     {
         const auto bounds = lengthBounds (i);
-        const bool isCurrent = lengths[(size_t) i] == length;
-
-        g.setColour (isCurrent ? textColour : offColour);
-        g.fillRoundedRectangle (bounds, 4.0f);
-        g.setColour (isCurrent ? juce::Colours::black : textColour.withAlpha (0.8f));
-        g.drawText (juce::String (lengths[(size_t) i]), bounds, juce::Justification::centred);
+        const auto textColour = drawUtilityKey (g, bounds, lengths[(size_t) i] == length);
+        drawText (g, juce::String (lengths[(size_t) i]), font::bold (12.0f), textColour, bounds, juce::Justification::centred);
     }
 }
 

@@ -2,10 +2,10 @@
 
 namespace
 {
-    const juce::Colour padColour { 0xff2a2d35 };
-    const juce::Colour accentColour { 0xffff8a3d };
-    const juce::Colour textColour { 0xffe8e8ea };
     constexpr float uiVelocity = 0.8f;
+    constexpr float rubberHeight = 80.0f;
+    constexpr float stripTop = 84.0f;
+    constexpr float cornerRadius = 4.0f;
 }
 
 PadComponent::PadComponent (NzDrumProcessor& processor, int padIndex)
@@ -18,9 +18,6 @@ PadComponent::PadComponent (NzDrumProcessor& processor, int padIndex)
 
     muteButton.setClickingTogglesState (true);
     soloButton.setClickingTogglesState (true);
-    muteButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xffd9534f));
-    soloButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xffe6c229));
-    soloButton.setColour (juce::TextButton::textColourOnId, juce::Colours::black);
     muteButton.setTooltip ("Mute: the pad is silent");
     soloButton.setTooltip ("Solo: only soloed pads play");
 
@@ -105,76 +102,111 @@ void PadComponent::refresh()
     }
 
     if (needsRepaint)
+    {
+        // The strip is narrow: the full name (or what is missing) goes in the tooltip.
+        if (missing)
+            setTooltip ("Missing: " + nzProcessor.getPadFile (pad).getFullPathName());
+        else
+            setTooltip (fileName);
+
         repaint();
+    }
+}
+
+juce::Rectangle<float> PadComponent::rubberBounds() const
+{
+    return getLocalBounds().toFloat().withHeight (rubberHeight);
 }
 
 void PadComponent::paint (juce::Graphics& g)
 {
-    const auto bounds = getLocalBounds().toFloat().reduced (3.0f);
+    using namespace theme;
 
-    g.setColour (padColour.interpolatedWith (accentColour, flash * 0.6f));
-    g.fillRoundedRectangle (bounds, 8.0f);
-
+    const auto rubber = rubberBounds();
     const bool highlighted = dragHover || selected;
-    g.setColour (highlighted ? accentColour : padColour.brighter (0.3f));
-    g.drawRoundedRectangle (bounds, 8.0f, highlighted ? 2.0f : 1.0f);
 
-    auto textArea = getLocalBounds().reduced (12, 10);
+    // The rubber pad. Silenced pads (mute, or another pad in solo) look flat.
+    // The selected pad's glow is drawn by the parent: it goes past our edges.
+    if (audible && ! highlighted)
+        drawDropShadow (g, rubber, cornerRadius, juce::Colours::black.withAlpha (0.5f), 3, { 0, 2 });
 
-    g.setColour (textColour.withAlpha (0.5f));
-    g.setFont (juce::FontOptions (13.0f, juce::Font::bold));
-    g.drawText (juce::String (pad + 1), textArea.removeFromTop (18), juce::Justification::topLeft);
+    const auto top = audible ? juce::Colour (0xffd8d4cc) : juce::Colour (0xffe6e0d4);
+    const auto bottom = audible ? juce::Colour (0xffb8b4ab) : juce::Colour (0xffd9d2c5);
+    g.setGradientFill (juce::ColourGradient::vertical (top, rubber.getY(), bottom, rubber.getBottom()));
+    g.fillRoundedRectangle (rubber, cornerRadius);
 
-    g.setColour (textColour);
-    g.setFont (juce::FontOptions (14.0f));
-
-    juce::String label = fileName.isEmpty() ? juce::String ("Empty") : fileName;
-
-    // The session asked for a file that is gone: say so in red, with the
-    // name, so it can be loaded again.
-    if (missing)
+    if (flash > 0.0f)
     {
-        label = "Missing: " + fileName;
-        g.setColour (juce::Colour (0xffff6b5e));
+        g.setColour (colour::active.withAlpha (0.35f * flash));
+        g.fillRoundedRectangle (rubber, cornerRadius);
     }
 
-    if (loading)
-        label = "Loading...";
+    if (audible)
+    {
+        drawInnerShadow (g, rubber, cornerRadius, juce::Colours::white.withAlpha (0.2f), 1, { 0, 1 });
+        drawInnerShadow (g, rubber, cornerRadius, juce::Colours::black.withAlpha (0.3f), 6, { 0, -3 });
+    }
+
+    if (highlighted)
+    {
+        drawInnerShadow (g, rubber, cornerRadius, colour::active.withAlpha (0.18f), 18, {});
+        g.setColour (colour::active);
+        g.drawRoundedRectangle (rubber.reduced (1.0f), cornerRadius, 2.0f);
+    }
+    else
+    {
+        g.setColour (juce::Colours::black.withAlpha (audible ? 0.85f : 0.25f));
+        g.drawRoundedRectangle (rubber.reduced (0.5f), cornerRadius, 1.0f);
+    }
 
     // In 16 levels the pad shows how many semitones it shifts the source.
     if (chromatic)
     {
         const int offset = NzDrumProcessor::chromaticOffsetFor (pad);
-        label = (offset > 0 ? "+" : "") + juce::String (offset) + " st";
-        g.setColour (offset == 0 ? accentColour : textColour);
-        g.setFont (juce::FontOptions (20.0f, juce::Font::bold));
+        drawText (g, (offset > 0 ? "+" : "") + juce::String (offset), font::bold (26.0f),
+                  offset == 0 ? colour::active : colour::primary.withAlpha (0.75f),
+                  rubber, juce::Justification::centred);
     }
 
-    g.drawFittedText (label, textArea.removeFromTop (40), juce::Justification::centredLeft, 2);
+    // The strip below: a small LCD with the number and the sample name.
+    const auto strip = getLocalBounds().toFloat().withTrimmedTop (stripTop);
+    g.setColour (colour::display);
+    g.fillRoundedRectangle (strip, cornerRadius);
+    drawInnerShadow (g, strip, cornerRadius, juce::Colours::black.withAlpha (0.5f), 2, { 0, 1 });
 
-    // Silenced by mute or solo: darkened, but still readable.
-    if (! audible)
+    drawText (g, juce::String (pad + 1).paddedLeft ('0', 2), font::mono (11.0f), colour::displayInk,
+              { 6.0f, strip.getY(), 18.0f, strip.getHeight() }, juce::Justification::centredLeft);
+
+    juce::String name = fileName.isEmpty() ? juce::String::fromUTF8 ("\xe2\x80\x94") : fileName.toUpperCase();   // —
+    auto nameColour = colour::displayInk;
+
+    // The session asked for a file that is gone: say so in red (the tooltip
+    // has the path), so it can be loaded again.
+    if (missing)
     {
-        g.setColour (juce::Colours::black.withAlpha (0.45f));
-        g.fillRoundedRectangle (bounds, 8.0f);
+        name = "MISSING";
+        nameColour = colour::missing;
     }
+
+    if (loading)
+        name = juce::String::fromUTF8 ("LOADING\xe2\x80\xa6");
+
+    g.setFont (font::semiBold (12.0f));
+    g.setColour (nameColour);
+    g.drawFittedText (name, juce::Rectangle<float> (26.0f, strip.getY(), 43.0f, strip.getHeight()).toNearestInt(),
+                      juce::Justification::centredLeft, 1, 0.8f);
 }
 
 void PadComponent::resized()
 {
-    auto area = getLocalBounds().reduced (10);
+    constexpr int keySize = 16, keyTop = 88;
+    int x = 70;
 
-    auto top = area.removeFromTop (20);
-    soloButton.setBounds (top.removeFromRight (22));
-    top.removeFromRight (4);
-    muteButton.setBounds (top.removeFromRight (22));
-
-    auto row = area.removeFromBottom (24);
-    const int width = row.getWidth() / 3;
-
-    previousButton.setBounds (row.removeFromLeft (width).reduced (2, 0));
-    loadButton.setBounds (row.removeFromLeft (width).reduced (2, 0));
-    nextButton.setBounds (row.reduced (2, 0));
+    for (auto* key : { &previousButton, &nextButton, &loadButton, &muteButton, &soloButton })
+    {
+        key->setBounds (x, keyTop, keySize, keySize);
+        x += keySize + 2;
+    }
 }
 
 void PadComponent::mouseDown (const juce::MouseEvent& event)
@@ -184,6 +216,10 @@ void PadComponent::mouseDown (const juce::MouseEvent& event)
         showPadMenu();
         return;
     }
+
+    // Only the rubber plays: the strip below is for reading and its keys.
+    if (! rubberBounds().contains (event.position))
+        return;
 
     // Same as the step row: Shift plays an accent and Option a soft hit (it
     // matters when recording, since the step gets that level).
