@@ -68,6 +68,11 @@ namespace theme
     // the shadows made the DAW sluggish while the transport ran. So each one is
     // rendered once, at the screen's pixel scale, and kept in JUCE's
     // ImageCache, which drops it a few seconds after nothing uses it.
+    //
+    // A shadow is one colour, so only its alpha is stored (a byte per pixel)
+    // and the colour is applied when drawing. The scale is rounded up to a
+    // half step, so dragging the window corner reuses a handful of sizes
+    // instead of storing new copies on every step of the drag.
     enum class ShadowKind { drop, inner };
 
     void drawCachedShadow (juce::Graphics& g, ShadowKind kind, juce::Rectangle<float> bounds, float cornerRadius,
@@ -77,7 +82,8 @@ namespace theme
             return;
 
         // Physical pixels per design pixel (window size times Retina).
-        const float scale = juce::jlimit (0.25f, 8.0f, g.getInternalContext().getPhysicalPixelScaleFactor());
+        const float physicalScale = g.getInternalContext().getPhysicalPixelScaleFactor();
+        const float scale = juce::jlimit (0.5f, 8.0f, std::ceil (physicalScale * 2.0f - 0.01f) * 0.5f);
 
         // A drop shadow reaches beyond the shape; an inner one stays inside it.
         const float margin = kind == ShadowKind::drop
@@ -87,7 +93,7 @@ namespace theme
 
         const auto key = juce::String ((int) kind) + "|" + juce::String (bounds.getWidth(), 2) + "x"
                        + juce::String (bounds.getHeight(), 2) + "|" + juce::String (cornerRadius, 2) + "|"
-                       + colour.toString() + "|" + juce::String (radius) + "|" + offset.toString() + "|"
+                       + juce::String (colour.getAlpha()) + "|" + juce::String (radius) + "|" + offset.toString() + "|"
                        + juce::String (scale, 3);
         const auto hash = key.hashCode64();
 
@@ -95,7 +101,7 @@ namespace theme
 
         if (! image.isValid())
         {
-            image = juce::Image (juce::Image::ARGB,
+            image = juce::Image (juce::Image::SingleChannel,
                                  juce::jmax (1, juce::roundToInt (area.getWidth() * scale)),
                                  juce::jmax (1, juce::roundToInt (area.getHeight() * scale)),
                                  true);
@@ -107,9 +113,11 @@ namespace theme
             juce::Path shape;
             shape.addRoundedRectangle (local, cornerRadius);
 
+            const auto mask = juce::Colours::black.withAlpha (colour.getAlpha());
+
             if (kind == ShadowKind::drop)
             {
-                juce::DropShadow (colour, radius, offset).drawForPath (ig, shape);
+                juce::DropShadow (mask, radius, offset).drawForPath (ig, shape);
             }
             else
             {
@@ -122,13 +130,14 @@ namespace theme
                 frame.addRoundedRectangle (local, cornerRadius);
                 frame.setUsingNonZeroWinding (false);
 
-                juce::DropShadow (colour, juce::jmax (1, radius), offset).drawForPath (ig, frame);
+                juce::DropShadow (mask, juce::jmax (1, radius), offset).drawForPath (ig, frame);
             }
 
             juce::ImageCache::addImageToCache (image, hash);
         }
 
-        g.drawImageTransformed (image, juce::AffineTransform::scale (1.0f / scale).translated (area.getX(), area.getY()));
+        g.setColour (colour.withAlpha (1.0f));
+        g.drawImageTransformed (image, juce::AffineTransform::scale (1.0f / scale).translated (area.getX(), area.getY()), true);
     }
 
     void drawDropShadow (juce::Graphics& g, juce::Rectangle<float> bounds, float cornerRadius,
