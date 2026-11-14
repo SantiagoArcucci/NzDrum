@@ -25,7 +25,20 @@ Drum machine VST3 de 16 pads con secuenciador por pasos y tres niveles de dinám
 - **Guardar:** al guardar la sesión de Studio Pro se guardan los 16 patrones con sus largos, el swing, el patrón elegido, los ajustes de cada pad y la **ruta** del sample de cada pad (el audio no se copia adentro de la sesión). Si al abrir la sesión un archivo ya no está, el pad muestra "Missing: nombre" en rojo y queda mudo; con `...`, `<` o `>` lo volvés a cargar. El portapapeles no se guarda.
 - **Tocar:** click en el pad, o notas MIDI. El pad 1 es la nota 36 (C1 en Studio Pro) y el 16 es la 51 (D#2). La grilla sigue la disposición de una MPC: el pad 1 abajo a la izquierda.
 
-## Requisitos (macOS)
+## Instalar
+
+Bajá el zip del [último release](https://github.com/SantiagoArcucci/NzDrum/releases/latest) y seguí el `INSTALL.txt` que viene adentro. En resumen:
+
+1. Copiá `NzDrum.vst3` a `~/Library/Audio/Plug-Ins/VST3`.
+2. El build no está firmado con un Developer ID de Apple, así que macOS lo bloquea. Sacale la marca de cuarentena desde la Terminal:
+   ```bash
+   xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/VST3/NzDrum.vst3
+   ```
+3. Reiniciá el DAW o volvé a escanear los plugins.
+
+Requiere macOS 11 o superior (Apple Silicon o Intel). En [CHANGELOG.md](CHANGELOG.md) está lo que trae cada versión.
+
+## Requisitos para compilar (macOS)
 
 - macOS 11 o superior (Apple Silicon o Intel)
 - Xcode con las Command Line Tools (`xcode-select --install`)
@@ -69,6 +82,18 @@ cmake --build build --target NzDrumTests --parallel
 ## CI
 
 Cada push y pull request compila el VST3 universal en GitHub Actions, corre las pruebas del motor, lo valida con [pluginval](https://github.com/Tracktion/pluginval) y lo deja como artifact descargable. Ese binario no está firmado ni notarizado: para usarlo, macOS te va a pedir habilitarlo a mano (`xattr -dr com.apple.quarantine NzDrum.vst3`). Para uso propio conviene compilarlo localmente.
+
+### Publicar una versión
+
+1. Poné la versión nueva en `project(NzDrum VERSION ...)` en `CMakeLists.txt`.
+2. Agregá una sección `## [x.y.z]` en `CHANGELOG.md` con lo que cambió.
+3. Mergealo a `main`, después creá el tag y subilo:
+   ```bash
+   git tag v0.1.0
+   git push origin v0.1.0
+   ```
+
+El workflow Release verifica que el tag coincida con la versión, compila, prueba y valida el plugin, y publica un GitHub Release con `NzDrum-x.y.z-macOS.zip` y la sección del changelog como notas.
 
 ## Licencia
 

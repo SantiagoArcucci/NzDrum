@@ -25,7 +25,20 @@ A 16-pad VST3 drum machine with a step sequencer and three dynamic levels per st
 - **Saving:** saving the Studio Pro session stores the 16 patterns with their lengths and semitones, the swing, the selected pattern, each pad's settings and the **path** to each pad's sample (the audio isn't copied into the session). If a file is gone when the session opens, the pad shows "Missing: name" in red and stays silent; `...`, `<` or `>` loads it again. The clipboard isn't saved.
 - **Playing:** click a pad, or send MIDI notes. Pad 1 is note 36 (C1 in Studio Pro) and pad 16 is 51 (D#2). The grid follows the MPC layout: pad 1 at the bottom left.
 
-## Requirements (macOS)
+## Installing
+
+Download the zip from the [latest release](https://github.com/SantiagoArcucci/NzDrum/releases/latest) and follow the `INSTALL.txt` inside it. In short:
+
+1. Copy `NzDrum.vst3` to `~/Library/Audio/Plug-Ins/VST3`.
+2. The build isn't signed with an Apple Developer ID, so macOS blocks it. Remove the quarantine mark in Terminal:
+   ```bash
+   xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/VST3/NzDrum.vst3
+   ```
+3. Restart the DAW or rescan plugins.
+
+Requires macOS 11 or later (Apple Silicon or Intel). See [CHANGELOG.md](CHANGELOG.md) for what's in each version.
+
+## Requirements for building (macOS)
 
 - macOS 11 or later (Apple Silicon or Intel)
 - Xcode with the Command Line Tools (`xcode-select --install`)
@@ -69,6 +82,18 @@ cmake --build build --target NzDrumTests --parallel
 ## CI
 
 Every push and pull request builds the universal VST3 on GitHub Actions, runs the engine tests, validates it with [pluginval](https://github.com/Tracktion/pluginval) and uploads it as a downloadable artifact. That binary isn't signed or notarized: to use it, macOS will ask you to allow it by hand (`xattr -dr com.apple.quarantine NzDrum.vst3`). For your own use, building it locally is simpler.
+
+### Making a release
+
+1. Set the new version in `project(NzDrum VERSION ...)` in `CMakeLists.txt`.
+2. Add a `## [x.y.z]` section to `CHANGELOG.md` with what changed.
+3. Merge that to `main`, then tag it and push the tag:
+   ```bash
+   git tag v0.1.0
+   git push origin v0.1.0
+   ```
+
+The Release workflow checks that the tag matches the version, builds, tests and validates the plugin, and publishes a GitHub Release with `NzDrum-x.y.z-macOS.zip` and the changelog section as its notes.
 
 ## License
 

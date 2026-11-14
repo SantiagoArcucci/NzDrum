@@ -1,0 +1,56 @@
+NzDrum - installation (macOS)
+=============================
+
+Requires macOS 11 or later, on Apple Silicon or Intel.
+
+1. Open Finder, press Cmd+Shift+G and go to:
+
+       ~/Library/Audio/Plug-Ins/VST3
+
+   (create the VST3 folder if it doesn't exist).
+
+2. Drag NzDrum.vst3 into that folder.
+
+3. This build isn't signed with an Apple Developer ID, so macOS blocks
+   plugins downloaded from the internet. Open Terminal and run:
+
+       xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/VST3/NzDrum.vst3
+
+   This only removes the "downloaded from the internet" mark from NzDrum.
+   If you skip it, the DAW may report the plugin as damaged or fail to load it.
+
+4. Restart your DAW (or rescan plugins). In Fender Studio Pro, NzDrum shows
+   up under instruments.
+
+To uninstall, delete ~/Library/Audio/Plug-Ins/VST3/NzDrum.vst3.
+
+Source code, help and bug reports: https://github.com/SantiagoArcucci/NzDrum
+
+
+NzDrum - instalación (macOS)
+============================
+
+Requiere macOS 11 o superior, en Apple Silicon o Intel.
+
+1. Abrí Finder, apretá Cmd+Shift+G y andá a:
+
+       ~/Library/Audio/Plug-Ins/VST3
+
+   (si la carpeta VST3 no existe, creala).
+
+2. Arrastrá NzDrum.vst3 a esa carpeta.
+
+3. Este build no está firmado con un Developer ID de Apple, así que macOS
+   bloquea los plugins bajados de internet. Abrí la Terminal y corré:
+
+       xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/VST3/NzDrum.vst3
+
+   Esto solo le saca a NzDrum la marca de "bajado de internet". Si no lo
+   hacés, el DAW puede decir que el plugin está dañado o no cargarlo.
+
+4. Reiniciá el DAW (o volvé a escanear los plugins). En Fender Studio Pro,
+   NzDrum aparece entre los instrumentos.
+
+Para desinstalarlo, borrá ~/Library/Audio/Plug-Ins/VST3/NzDrum.vst3.
+
+Código fuente, ayuda y reportes de errores: https://github.com/SantiagoArcucci/NzDrum
