@@ -42,6 +42,10 @@ public:
 
     void selectPad (int pad);
 
+    // The editor draws this view scaled. Mouse movement arrives in unscaled
+    // coordinates, so knobs need less of it at bigger sizes to feel the same.
+    void setScale (float scale);
+
     // Reads the processor's state into every component. Called at 30 Hz.
     void refreshAll();
 

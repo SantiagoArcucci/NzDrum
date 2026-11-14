@@ -27,5 +27,6 @@ void NzDrumEditor::resized()
 {
     const float scale = (float) getWidth() / (float) MainView::designWidth;
     view.setTransform (juce::AffineTransform::scale (scale));
+    view.setScale (scale);
     nzProcessor.setEditorWidth (getWidth());
 }

@@ -299,6 +299,12 @@ void PadEditorComponent::setPad (int pad)
     repaint();
 }
 
+void PadEditorComponent::setDragSensitivity (int pixels)
+{
+    for (auto& knob : knobs)
+        knob.slider.setMouseDragSensitivity (pixels);
+}
+
 void PadEditorComponent::paint (juce::Graphics& g)
 {
     using namespace theme;

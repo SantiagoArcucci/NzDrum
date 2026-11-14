@@ -206,6 +206,14 @@ void MainView::refreshAll()
     transport.refresh();
 }
 
+void MainView::setScale (float scale)
+{
+    // JUCE's default: 250 screen pixels for a full turn.
+    const int pixels = juce::jmax (1, juce::roundToInt (250.0f / scale));
+    swingSlider.setMouseDragSensitivity (pixels);
+    padEditor.setDragSensitivity (pixels);
+}
+
 void MainView::selectPad (int pad)
 {
     selectedPad = pad;

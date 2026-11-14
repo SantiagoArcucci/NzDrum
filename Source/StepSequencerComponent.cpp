@@ -24,7 +24,9 @@ StepSequencerComponent::StepSequencerComponent (NzDrumProcessor& processor)
 void StepSequencerComponent::setPad (int newPad)
 {
     pad = newPad;
-    padName = nzProcessor.getPadFile (pad).getFileNameWithoutExtension().toUpperCase();
+
+    // Painting reads the cached steps: load the new pad's before drawing.
+    refresh();
     repaint();
 }
 

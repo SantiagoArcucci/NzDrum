@@ -61,6 +61,10 @@ public:
     void setPad (int pad);
     void refresh();
 
+    // Pixels of mouse travel (in this component's coordinates) for a full
+    // turn of a knob. The editor scales the UI, so it adjusts this.
+    void setDragSensitivity (int pixels);
+
     void paint (juce::Graphics&) override;
     void resized() override;
 
