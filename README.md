@@ -74,6 +74,8 @@ cmake --build build --target NzDrumTests --parallel
 ./build/NzDrumTests_artefacts/Release/NzDrumTests
 ```
 
+The same binary can also render the UI to a PNG (`--snapshot ui.png 2`, the 2 is the scale) or time how long each part of the UI takes to repaint (`--benchmark 2`).
+
 ## Trying it in Fender Studio Pro
 
 1. Build as above and restart Studio Pro (or rescan plugins).

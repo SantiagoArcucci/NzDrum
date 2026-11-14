@@ -64,12 +64,77 @@ namespace theme::font
 
 namespace theme
 {
+    // Blurring a shadow happens on the CPU and is slow: drawn on every repaint,
+    // the shadows made the DAW sluggish while the transport ran. So each one is
+    // rendered once, at the screen's pixel scale, and kept in JUCE's
+    // ImageCache, which drops it a few seconds after nothing uses it.
+    enum class ShadowKind { drop, inner };
+
+    void drawCachedShadow (juce::Graphics& g, ShadowKind kind, juce::Rectangle<float> bounds, float cornerRadius,
+                           juce::Colour colour, int radius, juce::Point<int> offset)
+    {
+        if (bounds.isEmpty())
+            return;
+
+        // Physical pixels per design pixel (window size times Retina).
+        const float scale = juce::jlimit (0.25f, 8.0f, g.getInternalContext().getPhysicalPixelScaleFactor());
+
+        // A drop shadow reaches beyond the shape; an inner one stays inside it.
+        const float margin = kind == ShadowKind::drop
+                           ? (float) (radius + std::abs (offset.x) + std::abs (offset.y) + 1)
+                           : 0.0f;
+        const auto area = bounds.expanded (margin);
+
+        const auto key = juce::String ((int) kind) + "|" + juce::String (bounds.getWidth(), 2) + "x"
+                       + juce::String (bounds.getHeight(), 2) + "|" + juce::String (cornerRadius, 2) + "|"
+                       + colour.toString() + "|" + juce::String (radius) + "|" + offset.toString() + "|"
+                       + juce::String (scale, 3);
+        const auto hash = key.hashCode64();
+
+        auto image = juce::ImageCache::getFromHashCode (hash);
+
+        if (! image.isValid())
+        {
+            image = juce::Image (juce::Image::ARGB,
+                                 juce::jmax (1, juce::roundToInt (area.getWidth() * scale)),
+                                 juce::jmax (1, juce::roundToInt (area.getHeight() * scale)),
+                                 true);
+
+            juce::Graphics ig (image);
+            ig.addTransform (juce::AffineTransform::scale (scale));
+
+            const auto local = juce::Rectangle<float> (margin, margin, bounds.getWidth(), bounds.getHeight());
+            juce::Path shape;
+            shape.addRoundedRectangle (local, cornerRadius);
+
+            if (kind == ShadowKind::drop)
+            {
+                juce::DropShadow (colour, radius, offset).drawForPath (ig, shape);
+            }
+            else
+            {
+                ig.reduceClipRegion (shape);
+
+                // A frame around the shape casts its shadow inwards.
+                const float frameMargin = (float) (radius * 2 + std::abs (offset.x) + std::abs (offset.y) + 2);
+                juce::Path frame;
+                frame.addRectangle (local.expanded (frameMargin));
+                frame.addRoundedRectangle (local, cornerRadius);
+                frame.setUsingNonZeroWinding (false);
+
+                juce::DropShadow (colour, juce::jmax (1, radius), offset).drawForPath (ig, frame);
+            }
+
+            juce::ImageCache::addImageToCache (image, hash);
+        }
+
+        g.drawImageTransformed (image, juce::AffineTransform::scale (1.0f / scale).translated (area.getX(), area.getY()));
+    }
+
     void drawDropShadow (juce::Graphics& g, juce::Rectangle<float> bounds, float cornerRadius,
                          juce::Colour colour, int radius, juce::Point<int> offset)
     {
-        juce::Path shape;
-        shape.addRoundedRectangle (bounds, cornerRadius);
-        juce::DropShadow (colour, radius, offset).drawForPath (g, shape);
+        drawCachedShadow (g, ShadowKind::drop, bounds, cornerRadius, colour, radius, offset);
     }
 
     void drawGlow (juce::Graphics& g, juce::Rectangle<float> bounds, float cornerRadius,
@@ -81,20 +146,7 @@ namespace theme
     void drawInnerShadow (juce::Graphics& g, juce::Rectangle<float> bounds, float cornerRadius,
                           juce::Colour colour, int radius, juce::Point<int> offset)
     {
-        juce::Graphics::ScopedSaveState state (g);
-
-        juce::Path shape;
-        shape.addRoundedRectangle (bounds, cornerRadius);
-        g.reduceClipRegion (shape);
-
-        // A frame around the shape casts its shadow inwards.
-        const float margin = (float) (radius * 2 + std::abs (offset.x) + std::abs (offset.y) + 2);
-        juce::Path frame;
-        frame.addRectangle (bounds.expanded (margin));
-        frame.addRoundedRectangle (bounds, cornerRadius);
-        frame.setUsingNonZeroWinding (false);
-
-        juce::DropShadow (colour, juce::jmax (1, radius), offset).drawForPath (g, frame);
+        drawCachedShadow (g, ShadowKind::inner, bounds, cornerRadius, colour, radius, offset);
     }
 
     void drawText (juce::Graphics& g, const juce::String& text, const juce::Font& font, juce::Colour colour,
@@ -170,9 +222,7 @@ namespace theme
     {
         if (on)
         {
-            juce::Path dot;
-            dot.addEllipse (bounds);
-            juce::DropShadow (colour::accent.withAlpha (0.8f), 5, {}).drawForPath (g, dot);
+            drawGlow (g, bounds, bounds.getWidth() * 0.5f, colour::accent.withAlpha (0.8f), 5);
             g.setColour (colour::accent);
         }
         else

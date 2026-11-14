@@ -508,7 +508,7 @@ private:
 
 static PadSettingsTests padSettingsTests;
 
-int runSnapshot (const juce::File& output, float scale);
+int runSnapshot (const juce::File& output, float scale, bool benchmark);
 
 int main (int argc, char* argv[])
 {
@@ -517,7 +517,10 @@ int main (int argc, char* argv[])
     // Renders the UI to a PNG instead of running the tests (see Snapshot.cpp).
     if (argc >= 3 && juce::String (argv[1]) == "--snapshot")
         return runSnapshot (juce::File::getCurrentWorkingDirectory().getChildFile (argv[2]),
-                            argc >= 4 ? juce::String (argv[3]).getFloatValue() : 1.0f);
+                            argc >= 4 ? juce::String (argv[3]).getFloatValue() : 1.0f, false);
+
+    if (argc >= 2 && juce::String (argv[1]) == "--benchmark")
+        return runSnapshot ({}, argc >= 3 ? juce::String (argv[2]).getFloatValue() : 1.0f, true);
 
     juce::UnitTestRunner runner;
     runner.setAssertOnFailure (false);

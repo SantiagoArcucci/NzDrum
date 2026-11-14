@@ -1,5 +1,6 @@
 // Renders the plugin UI to a PNG without a DAW, to check the look:
 //   NzDrumTests --snapshot out.png [scale]
+//   NzDrumTests --benchmark [scale]   (prints what each repaint costs)
 // It loads generated samples on most pads and fills a pattern, so every
 // state of the design shows up.
 
@@ -33,7 +34,7 @@ namespace
     }
 }
 
-int runSnapshot (const juce::File& output, float scale)
+int runSnapshot (const juce::File& output, float scale, bool benchmark)
 {
     const auto folder = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("NzDrumSnapshot");
     folder.deleteRecursively();
@@ -81,6 +82,43 @@ int runSnapshot (const juce::File& output, float scale)
     // The waveform thumbnail reads the file on its own thread.
     juce::Thread::sleep (1000);
     nzEditor->getView().refreshAll();
+
+    if (benchmark)
+    {
+        // Times what a frame costs while the transport runs: a component
+        // repaints, and everything under it is painted again in its area.
+        juce::Image frame (juce::Image::ARGB, juce::roundToInt ((float) editor->getWidth() * scale),
+                           juce::roundToInt ((float) editor->getHeight() * scale), true);
+
+        const auto time = [&] (const char* name, juce::Component& component)
+        {
+            constexpr int runs = 40;
+            const auto area = editor->getLocalArea (&component, component.getLocalBounds());
+            const auto start = juce::Time::getMillisecondCounterHiRes();
+
+            for (int i = 0; i < runs; ++i)
+            {
+                component.repaint();
+                juce::Graphics g (frame);
+                g.addTransform (juce::AffineTransform::scale (scale));
+                g.reduceClipRegion (area);
+                editor->paintEntireComponent (g, false);
+            }
+
+            std::printf ("%-12s %8.2f ms per repaint\n", name, (juce::Time::getMillisecondCounterHiRes() - start) / runs);
+        };
+
+        auto& view = nzEditor->getView();
+        time ("whole view", view);
+
+        for (auto* child : view.getChildren())
+            if (child->getName().isNotEmpty())
+                time (child->getName().toRawUTF8(), *child);
+
+        editor.reset();
+        folder.deleteRecursively();
+        return 0;
+    }
 
     const auto image = editor->createComponentSnapshot (editor->getLocalBounds(), true, scale);
     output.deleteFile();
