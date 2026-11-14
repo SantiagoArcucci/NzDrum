@@ -74,6 +74,8 @@ cmake --build build --target NzDrumTests --parallel
 ./build/NzDrumTests_artefacts/Release/NzDrumTests
 ```
 
+El mismo binario también puede dibujar la UI en un PNG (`--snapshot ui.png 2`, el 2 es la escala) o medir cuánto tarda en redibujarse cada parte de la UI (`--benchmark 2`).
+
 ## Probar en Fender Studio Pro
 
 1. Compilá como arriba y reiniciá Studio Pro (o volvé a escanear plugins).

@@ -109,6 +109,7 @@ MainView::MainView (NzDrumProcessor& p)
     for (int pad = 0; pad < NzDrumProcessor::numPads; ++pad)
     {
         pads.push_back (std::make_unique<PadComponent> (nzProcessor, pad));
+        pads.back()->setName ("pad " + juce::String (pad + 1));
         pads.back()->onSelect = [this] (int selected)
         {
             // In 16 levels mode the selection stays on the source pad: the pads
@@ -118,6 +119,12 @@ MainView::MainView (NzDrumProcessor& p)
         };
         addAndMakeVisible (*pads.back());
     }
+
+    patternBar.setName ("pattern bar");
+    sequencer.setName ("sequencer");
+    padEditor.setName ("pad editor");
+    transport.setName ("transport");
+    swingSlider.setName ("swing");
 
     addAndMakeVisible (patternBar);
     addAndMakeVisible (sequencer);
